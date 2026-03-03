@@ -2,22 +2,27 @@
 from core.productos import Productos
 from core.clientes import Clientes
 from core.profesores import Profesores
+from core.pases import Pases
+from core.ventas import Ventas
+from core.tipo_pase import TipoPase  # <-- 1. Importar la nueva lógica
 from ui.main_window import MainWindow
 import customtkinter as ctk
 
-# Configuración visual global
-ctk.set_appearance_mode("dark")  # "System" (estándar), "Dark", "Light"
-ctk.set_default_color_theme("blue") # Temas: "blue", "green", "dark-blue"
-
 if __name__ == "__main__":
-    ctk.set_appearance_mode("dark")  # La estética "actual" por excelencia
+    ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
 
-    # Iniciar el "cerebro"
-    logic = Productos()
+    # Iniciar todos los "cerebros"
+    logic_prod = Productos()
     logic_clie = Clientes()
     logic_prof = Profesores()
+    logic_pases = Pases()
+    logic_tipo_pases = TipoPase()
     
-    # Iniciar la "cara" pasándole el cerebro
-    app = MainWindow(logic, logic_clie, logic_prof)
+    # Extraemos el db_manager de una de las lógicas para la nueva
+    db_manager = logic_prod.db 
+    logic_ventas = Ventas(db_manager) 
+
+    # IMPORTANTE: Pasamos las 6 lógicas en orden
+    app = MainWindow(logic_prod, logic_clie, logic_prof, logic_pases, logic_tipo_pases, logic_ventas)
     app.mainloop()

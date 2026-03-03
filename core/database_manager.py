@@ -66,15 +66,16 @@ class DatabaseManager:
             )"""
         
         # 6. Ventas (Ya lo tenías bien)
-        query_ventas = """
-        CREATE TABLE IF NOT EXISTS ventas (
+        query_tabla_ventas = """
+            CREATE TABLE IF NOT EXISTS ventas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            id_prod TEXT,
-            cantidad INTEGER,
-            total REAL,
-            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (id_prod) REFERENCES productos (id)
-        )"""
+            fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+            concepto TEXT,
+            categoria TEXT,
+            monto REAL,
+            metodo_pago TEXT
+        )
+        """
         
         with self._get_connection() as conn:
             conn.execute(query_productos)
@@ -82,7 +83,7 @@ class DatabaseManager:
             conn.execute(query_profesores)
             conn.execute(query_tipo_pase)
             conn.execute(query_pases)
-            conn.execute(query_ventas)
+            conn.execute(query_tabla_ventas)
 
     def execute_query(self, query, params=()):
         with self._get_connection() as conn:
