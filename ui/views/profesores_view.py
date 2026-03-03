@@ -4,10 +4,10 @@ from tkcalendar import DateEntry
 from datetime import datetime
 from tkinter import ttk
 
-class ClienteView(ctk.CTkFrame):
-    def __init__(self, master, logic_clientes):
+class ProfesorView(ctk.CTkFrame):
+    def __init__(self, master, logic_profesores):
         super().__init__(master, fg_color="transparent")
-        self.logic = logic_clientes
+        self.logic_profesores = logic_profesores
         
         style = ttk.Style()
         style.theme_use("default")
@@ -44,14 +44,14 @@ class ClienteView(ctk.CTkFrame):
         # Aquí es donde fallaba: debe existir el método self.load_data
         self.search_entry.bind("<KeyRelease>", self.load_data)
 
-        self.table_frame = ctk.CTkScrollableFrame(self.left_panel, label_text="Lista de Clientes")
+        self.table_frame = ctk.CTkScrollableFrame(self.left_panel, label_text="Lista de profesores")
         self.table_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
 
         # --- PANEL DERECHO ---
         self.right_panel = ctk.CTkFrame(self, width=300)
         self.right_panel.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
         
-        ctk.CTkLabel(self.right_panel, text="Detalle Cliente", font=("Segoe UI", 16, "bold")).pack(pady=10)
+        ctk.CTkLabel(self.right_panel, text="Detalle profesor", font=("Segoe UI", 16, "bold")).pack(pady=10)
         self.entry_dni = ctk.CTkEntry(self.right_panel, placeholder_text="DNI")
         self.entry_dni.pack(pady=5, padx=10, fill="x")
 
@@ -88,7 +88,7 @@ class ClienteView(ctk.CTkFrame):
         # 3. Lo expandimos para que llene el interior del marco redondeado
         self.entry_nacimiento.pack(fill="both", expand=True, padx=8, pady=4)
 
-        self.btn_save = ctk.CTkButton(self.right_panel, text="Guardar", command=self.save_cliente, fg_color="#28a745")
+        self.btn_save = ctk.CTkButton(self.right_panel, text="Guardar", command=self.save_profesor, fg_color="#28a745")
         self.btn_save.pack(pady=15, padx=10, fill="x")
 
         self.btn_clear = ctk.CTkButton(self.right_panel, text="Limpiar", command=self.clear_form, fg_color="gray")
@@ -99,7 +99,7 @@ class ClienteView(ctk.CTkFrame):
 
     # ⬇️ ESTE MÉTODO FALTABA O TENÍA OTRO NOMBRE ⬇️
     def load_data(self, event=None):
-        """Carga y filtra los clientes en la tabla."""
+        """Carga y filtra los profesores en la tabla."""
         # Limpiar los widgets actuales en la tabla
         for widget in self.table_frame.winfo_children():
             widget.destroy()
@@ -108,12 +108,12 @@ class ClienteView(ctk.CTkFrame):
         
         # DECISIÓN: Si el buscador está vacío, cargar todos.
         if not termino:
-            clientes = self.logic.cargar_clientes()
+            profesores = self.logic_profesores.cargar_profesores()
         else:
-            # Asegúrate de que este método 'buscar_cliente' exista en tu clase Clientes
-            clientes = self.logic.buscar_cliente(termino)
+            # Asegúrate de que este método 'buscar_profesor' exista en tu clase profesores
+            profesores = self.logic_profesores.buscar_profesor(termino)
         
-        for c in clientes:
+        for c in profesores:
             row = ctk.CTkFrame(self.table_frame, fg_color="#2b2b2b")
             row.pack(fill="x", pady=2, padx=5)
             
@@ -121,22 +121,22 @@ class ClienteView(ctk.CTkFrame):
             
             # Botones de acción
             btn_del = ctk.CTkButton(row, text="🗑", width=30, fg_color="#dc3545", 
-                                    command=lambda d=c['dni']: self.delete_cliente(d))
+                                    command=lambda d=c['dni']: self.delete_profesor(d))
             btn_del.pack(side="right", padx=5)
             
             btn_edit = ctk.CTkButton(row, text="✏️", width=30, fg_color="#ffc107", text_color="black",
                                     command=lambda cli=c: self.fill_form(cli))
             btn_edit.pack(side="right", padx=5)
 
-    def fill_form(self, cliente):
+    def fill_form(self, profesor):
         self.clear_form()
-        self.entry_dni.insert(0, cliente['dni'])
-        self.entry_nombre.insert(0, cliente['nombre'])
-        self.entry_apellido.insert(0, cliente['apellido'])
+        self.entry_dni.insert(0, profesor['dni'])
+        self.entry_nombre.insert(0, profesor['nombre'])
+        self.entry_apellido.insert(0, profesor['apellido'])
         
         # CAMBIO: Leer con el formato d/m/Y
         try:
-            fecha_dt = datetime.strptime(cliente['cumpleanios'], '%d/%m/%Y')
+            fecha_dt = datetime.strptime(profesor['cumpleanios'], '%d/%m/%Y')
             self.entry_nacimiento.set_date(fecha_dt)
         except Exception as e:
             print(f"Error al convertir fecha: {e}")
@@ -144,28 +144,33 @@ class ClienteView(ctk.CTkFrame):
             
         self.entry_dni.configure(state="disabled")
 
-    def save_cliente(self):
-        dni = self.entry_dni.get()
-        nombre = self.entry_nombre.get()
-        apellido = self.entry_apellido.get()
+    def save_profesor(self):
+        dni = self.entry_dni.get().strip()
+        nombre = self.entry_nombre.get().strip()
+        apellido = self.entry_apellido.get().strip()
         
-        # CAMBIO: Guardar en formato día/mes/año
+        # Guardar como cadena con barras d/m/y
         nacimiento = self.entry_nacimiento.get_date().strftime('%d/%m/%Y')
         
+        if not dni or not nombre:
+            messagebox.showwarning("Atención", "DNI y Nombre son obligatorios")
+            return
+
         if self.entry_dni.cget("state") == "disabled":
-            exito, msg = self.logic.modificar_cliente(dni, nombre, apellido, nacimiento)
+            exito, msg = self.logic_profesores.modificar_profesor(dni, nombre, apellido, nacimiento)
         else:
-            exito, msg = self.logic.registrar_cliente(nombre, apellido, dni, nacimiento)
+            exito, msg = self.logic_profesores.registrar_profesor(nombre, apellido, dni, nacimiento)
             
         if exito:
+            messagebox.showinfo("Éxito", msg) # Añadido para confirmar
             self.clear_form()
             self.load_data()
         else:
             messagebox.showerror("Error", msg)
 
-    def delete_cliente(self, dni):
-        if messagebox.askyesno("Confirmar", f"¿Eliminar cliente {dni}?"):
-            exito, msg = self.logic.eliminar_cliente(dni)
+    def delete_profesor(self, dni):
+        if messagebox.askyesno("Confirmar", f"¿Eliminar profesor {dni}?"):
+            exito, msg = self.logic_profesores.eliminar_profesor(dni)
             if exito: self.load_data()
             else: messagebox.showerror("Error", msg)
 

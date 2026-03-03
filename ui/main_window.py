@@ -1,15 +1,15 @@
 import customtkinter as ctk
 from ui.views.productos_view import ProductosView
 from ui.views.clientes_view import ClienteView 
+from ui.views.profesores_view import ProfesorView
 # from ui.views.pases_view import PasesView <-- Crearás este después
 
-from core.productos import Productos
-from core.clientes import Clientes
-
 class MainWindow(ctk.CTk):
-    def __init__(self, logic_manager): 
+    def __init__(self, logic_prod, logic_clie, logic_prof): 
         super().__init__()
-        self.logic = logic_manager
+        self.logic_prod = logic_prod
+        self.logic_clie = logic_clie
+        self.logic_prof = logic_prof
         
         self.title("Sistema de Gestión Pro v1.0")
         self.geometry("1100x650")
@@ -31,6 +31,9 @@ class MainWindow(ctk.CTk):
 
         self.btn_clie = ctk.CTkButton(self.sidebar, text="Clientes", command=self.show_customers)
         self.btn_clie.pack(pady=10, padx=20)
+        
+        self.btn_clie = ctk.CTkButton(self.sidebar, text="Profesores", command=self.show_profesores)
+        self.btn_clie.pack(pady=10, padx=20)
 
         self.btn_pases = ctk.CTkButton(self.sidebar, text="Gestión de Pases", command=self.show_pases)
         self.btn_pases.pack(pady=10, padx=20)
@@ -49,16 +52,19 @@ class MainWindow(ctk.CTk):
 
     def show_products(self):
         self._clear_main_container()
-        # Instanciamos la lógica y la vista de productos
-        logic_prod = Productos()
-        self.current_view = ProductosView(self.main_container, logic_prod)
+        self.current_view = ProductosView(self.main_container, self.logic_prod)
         self.current_view.pack(fill="both", expand=True)
 
     def show_customers(self):
         self._clear_main_container()
-        # Instanciamos la lógica y la vista de clientes
-        logic_clie = Clientes()
-        self.current_view = ClienteView(self.main_container, logic_clie)
+        # Usamos la lógica que ya fue creada al inicio
+        self.current_view = ClienteView(self.main_container, self.logic_clie)
+        self.current_view.pack(fill="both", expand=True)
+        
+    def show_profesores(self):
+        self._clear_main_container()
+        # Usamos la lógica que ya fue creada al inicio
+        self.current_view = ProfesorView(self.main_container, self.logic_prof)
         self.current_view.pack(fill="both", expand=True)
 
     def show_pases(self):

@@ -1,56 +1,50 @@
 from core.database_manager import DatabaseManager
 import sqlite3
 
-class Clientes:
+class Profesores:
     def __init__(self):
         try:
             self.db = DatabaseManager()
         except sqlite3.Error as e:
             print(f"Error crítico al conectar con la base de datos: {e}")
-            raise # Detener la app si no hay DB
+            
     
-    def registrar_cliente(self, nombre, apellido, dni, nacimiento):
-    # 1. Verificar si el DNI ya existe
-        query_check_dni = "SELECT 1 FROM clientes WHERE dni = ?"
-    
+    def registrar_profesor(self, nombre, apellido, dni, nacimiento_str):
+        query_check_dni = "SELECT 1 FROM profesores WHERE dni = ?"
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query_check_dni, (dni,))
                 if cursor.fetchone():
-                    return False, f"Error: Ya existe un cliente con el dni '{dni}'."
+                    return False, f"Error: Ya existe un profesor con el dni '{dni}'."
 
-        # 2. CORRECCIÓN: Usar 'fecha_nacimiento' en lugar de 'nacimiento'
-            query_insert = "INSERT INTO clientes (dni, nombre, apellido, fecha_nacimiento) VALUES (?, ?, ?, ?)"
-            self.db.execute_query(query_insert, (dni, nombre, apellido, nacimiento))
-        
-            return True, "Cliente registrado correctamente."
+            query_insert = "INSERT INTO profesores (dni, nombre, apellido, fecha_nacimiento) VALUES (?, ?, ?, ?)"
+            self.db.execute_query(query_insert, (dni, nombre, apellido, nacimiento_str))
+            return True, "Profesor registrado correctamente."
         except sqlite3.Error as e:
             return False, f"Error de base de datos: {e}"
         
-    def cargar_clientes(self):
-        # Quitamos 'id' de la consulta
-        query = "SELECT nombre, apellido, dni, fecha_nacimiento FROM clientes"
+    def cargar_profesores(self):
+        query = "SELECT nombre, apellido, dni, fecha_nacimiento FROM profesores"
         try:
             resultados = self.db.fetch_all(query)
-            clientes = []
+            profesores = []
             for row in resultados:
-                clientes.append({
+                profesores.append({
                     'nombre': row[0],
                     'apellido': row[1],
                     'dni': row[2],
                     'cumpleanios': row[3]
                 })
-            return clientes
+            return profesores
         except sqlite3.Error as e:
-            print(f"Error al cargar de clientes: {e}")
+            print(f"Error al cargar de profesores: {e}")
             return []
 
-    def buscar_cliente(self, termino):
-        # Quitamos 'id' de aquí también
+    def buscar_profesor(self, termino):
         query = """
             SELECT nombre, apellido, dni, fecha_nacimiento 
-            FROM clientes 
+            FROM profesores 
             WHERE dni LIKE ? OR nombre LIKE ? OR apellido LIKE ?
         """
         busqueda = f"%{termino}%"
@@ -66,24 +60,24 @@ class Clientes:
             print(f"Error: {e}")
             return []
     
-    def eliminar_cliente(self, dni):
-        query = "DELETE FROM clientes WHERE dni = ?"
+    def eliminar_profesor(self, dni):
+        query = "DELETE FROM profesores WHERE dni = ?"
         
         try:
             self.db.execute_query(query, (dni,))
-            return True, "Cliente eliminado correctamente."
+            return True, "profesor eliminado correctamente."
         except sqlite3.Error as e:
             return False, f"Error al eliminar: {e}"
         
-    def modificar_cliente(self, dni, nombre, apellido, nacimiento):
+    def modificar_profesor(self, dni, nombre, apellido, nacimiento_str):
         query_update = """
-            UPDATE clientes 
+            UPDATE profesores 
             SET nombre = ?, apellido = ?, fecha_nacimiento = ? 
             WHERE dni = ?
         """
         try:
-            self.db.execute_query(query_update, (nombre, apellido, nacimiento, dni))
-            return True, "Cliente actualizado correctamente."
+            self.db.execute_query(query_update, (nombre, apellido, nacimiento_str, dni))
+            return True, "Profesor actualizado correctamente."
         except Exception as e:
             return False, f"Error de DB: {e}"
     

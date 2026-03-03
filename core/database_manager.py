@@ -31,9 +31,12 @@ class DatabaseManager:
         
         # 3. Tipo Pase (CORREGIDO: SERIAL -> INTEGER PRIMARY KEY AUTOINCREMENT)
         query_tipo_pase = """
-        CREATE TABLE IF NOT EXISTS tipo_pase (
+        CREATE TABLE IF NOT EXISTS tipos_pases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            descripcion TEXT NOT NULL
+            nombre TEXT UNIQUE,
+            precio REAL,
+            cantidad_sesiones INTEGER,
+            con_profesor INTEGER
         )"""
         
         # 4. Profesores (CORREGIDO: IF NOT EXISTS y tipos)
@@ -41,22 +44,26 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS profesores (
                 dni TEXT PRIMARY KEY,
                 nombre TEXT NOT NULL,
-                apellido TEXT NOT NULL
+                apellido TEXT NOT NULL,
+                fecha_nacimiento TEXT NOT NULL
             )"""
         
         # 5. Pases (CORREGIDO: SERIAL -> INTEGER, IF NOT EXISTS y tipos)
         query_pases = """
-            CREATE TABLE IF NOT EXISTS pases (
+            CREATE TABLE IF NOT EXISTS pases_clientes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                dni_cliente TEXT NOT NULL,
-                dni_profesor TEXT,
-                id_tipo_pase INTEGER NOT NULL,
-                cantidad_restante INTEGER NOT NULL DEFAULT 0,
-    
-                FOREIGN KEY (dni_cliente) REFERENCES clientes(dni),
-                FOREIGN KEY (dni_profesor) REFERENCES profesores(dni),
-                FOREIGN KEY (id_tipo_pase) REFERENCES tipo_pase(id)
-        )"""
+                dni_cliente TEXT NOT NULL,          -- El DNI que identifica al dueño
+                id_tipo_pase INTEGER NOT NULL,      -- El plan comprado
+                dni_profesor TEXT,                  -- El profe asignado (opcional si es 'sin profe')
+                sesiones_restantes INTEGER, 
+                fecha_vencimiento TEXT,
+                estado TEXT,
+                -- ESTO ES LO QUE CREA EL VÍNCULO REAL:
+                FOREIGN KEY (dni_cliente) REFERENCES clientes(dni) 
+                    ON DELETE CASCADE,
+                FOREIGN KEY (id_tipo_pase) REFERENCES tipos_pases(id),
+                FOREIGN KEY (dni_profesor) REFERENCES profesores(dni)
+            )"""
         
         # 6. Ventas (Ya lo tenías bien)
         query_ventas = """

@@ -1,5 +1,7 @@
 # main.py
 from core.productos import Productos
+from core.clientes import Clientes
+from core.profesores import Profesores
 from ui.main_window import MainWindow
 import customtkinter as ctk
 
@@ -13,7 +15,9 @@ if __name__ == "__main__":
 
     # Iniciar el "cerebro"
     logic = Productos()
+    logic_clie = Clientes()
+    logic_prof = Profesores()
     
     # Iniciar la "cara" pasándole el cerebro
-    app = MainWindow(logic)
+    app = MainWindow(logic, logic_clie, logic_prof)
     app.mainloop()
