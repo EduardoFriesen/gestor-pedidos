@@ -26,7 +26,14 @@ class DatabaseManager:
                 dni TEXT PRIMARY KEY,
                 nombre TEXT NOT NULL,
                 apellido TEXT NOT NULL,
-                fecha_nacimiento TEXT NOT NULL
+                fecha_nacimiento TEXT NOT NULL,
+                fecha_ficha TEXT,
+                telefono TEXT,
+                contacto TEXT,
+                relacion TEXT,
+                telefono_contacto TEXT,
+                deudor BOOLEAN DEFAULT 0,
+                observaciones TEXT
             )"""
         
         # 3. Tipo Pase (CORREGIDO: SERIAL -> INTEGER PRIMARY KEY AUTOINCREMENT)
@@ -45,6 +52,7 @@ class DatabaseManager:
                 dni TEXT PRIMARY KEY,
                 nombre TEXT NOT NULL,
                 apellido TEXT NOT NULL,
+                telefono TEXT,
                 fecha_nacimiento TEXT NOT NULL
             )"""
         
@@ -58,6 +66,9 @@ class DatabaseManager:
                 sesiones_restantes INTEGER, 
                 fecha_vencimiento TEXT,
                 estado TEXT,
+                monto_pagado REAL,
+                pago_total BOOLEAN,
+                observaciones TEXT,
                 -- ESTO ES LO QUE CREA EL VÍNCULO REAL:
                 FOREIGN KEY (dni_cliente) REFERENCES clientes(dni) 
                     ON DELETE CASCADE,
@@ -65,7 +76,6 @@ class DatabaseManager:
                 FOREIGN KEY (dni_profesor) REFERENCES profesores(dni)
             )"""
         
-        # 6. Ventas (Ya lo tenías bien)
         query_tabla_ventas = """
             CREATE TABLE IF NOT EXISTS ventas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +83,8 @@ class DatabaseManager:
             concepto TEXT,
             categoria TEXT,
             monto REAL,
-            metodo_pago TEXT
+            metodo_pago TEXT,
+            observacion TEXT
         )
         """
         
