@@ -88,6 +88,20 @@ class DatabaseManager:
         )
         """
         
+        query_staff = """
+            CREATE TABLE IF NOT EXIST staff(
+                dni TEXT PRIMARY KEY,
+                nombre TEXT NOT NULL,
+                apellido TEXT NOT NULL,
+                telefono TEXT,
+                fecha_nacimiento TEXT NOT NULL,
+                sueldo REAL,
+                fecha_ingreso TEXT NOT NULL,
+                horas REAL
+            )
+        """
+        
+        
         with self._get_connection() as conn:
             conn.execute(query_productos)
             conn.execute(query_clientes)
@@ -95,6 +109,7 @@ class DatabaseManager:
             conn.execute(query_tipo_pase)
             conn.execute(query_pases)
             conn.execute(query_tabla_ventas)
+            conn.execute(query_staff)
 
     def execute_query(self, query, params=()):
         with self._get_connection() as conn:

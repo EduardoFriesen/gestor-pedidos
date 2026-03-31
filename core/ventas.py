@@ -49,3 +49,4 @@ class Ventas:
         query = "SELECT SUM(monto) FROM ventas WHERE date(fecha_hora) = date('now', 'localtime')"
         resultado = self.db.fetch_all(query)
         return resultado[0][0] if resultado[0][0] else 0
+    
