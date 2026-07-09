@@ -1,0 +1,113 @@
+:root {
+  --font-body: 22px;
+  --font-lg: 36px;
+  --font-xl: 48px;
+  --font-sm: 18px;
+  --font-xs: 16px;
+
+  --spacing-xs: 8px;
+  --spacing-sm: 12px;
+  --spacing-md: 20px;
+  --spacing-lg: 32px;
+  --spacing-xl: 48px;
+
+  --touch-size: 56px;
+  --radius: 12px;
+  --radius-lg: 16px;
+
+  --transition: 0.15s ease;
+
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+}
+
+.theme-claro {
+  --bg: #FFF8F0;
+  --bg-card: #FFFFFF;
+  --bg-hover: #FFF0E0;
+  --text: #1A1A2E;
+  --text-secondary: #5A5A6E;
+  --primary: #2D6A4F;
+  --primary-hover: #1B4332;
+  --primary-light: #D8EDE3;
+  --accent: #E07A5F;
+  --accent-light: #FDE8E0;
+  --border: #E8DED1;
+  --success: #52B788;
+  --success-light: #D8F0E3;
+  --warning: #F4A261;
+  --warning-light: #FEF0D8;
+  --danger: #E63946;
+  --danger-light: #FDE0E0;
+  --nav-bg: #FFFFFF;
+  --shadow: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.1);
+
+  color-scheme: light;
+}
+
+.theme-oscuro {
+  --bg: #0D0D0D;
+  --bg-card: #1A1A1A;
+  --bg-hover: #252525;
+  --text: #FFFFFF;
+  --text-secondary: #AAAAAA;
+  --primary: #52B788;
+  --primary-hover: #74C69D;
+  --primary-light: #1A3A2A;
+  --accent: #F4A261;
+  --accent-light: #2A1A0A;
+  --border: #333333;
+  --success: #52B788;
+  --success-light: #1A3A2A;
+  --warning: #F4A261;
+  --warning-light: #2A1A0A;
+  --danger: #E63946;
+  --danger-light: #2A0A0A;
+  --nav-bg: #111111;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.5);
+
+  color-scheme: dark;
+}
+
+.theme-daltonico {
+  --bg: #F5F0EB;
+  --bg-card: #FFFFFF;
+  --bg-hover: #EDE8E0;
+  --text: #1A1A2E;
+  --text-secondary: #5A5A6E;
+  --primary: #0077B6;
+  --primary-hover: #005A8C;
+  --primary-light: #D0E8F5;
+  --accent: #E07A5F;
+  --accent-light: #FDE8E0;
+  --border: #D8D0C8;
+  --success: #0077B6;
+  --success-light: #D0E8F5;
+  --warning: #E07A5F;
+  --warning-light: #FDE8E0;
+  --danger: #D62828;
+  --danger-light: #FDE0E0;
+  --nav-bg: #FFFFFF;
+  --shadow: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.1);
+
+  color-scheme: light;
+}
+
+.macro-mode {
+  --font-body: 44px;
+  --font-lg: 64px;
+  --font-xl: 80px;
+  --font-sm: 32px;
+  --font-xs: 28px;
+  --spacing-xs: 14px;
+  --spacing-sm: 20px;
+  --spacing-md: 36px;
+  --spacing-lg: 52px;
+  --spacing-xl: 72px;
+  --touch-size: 96px;
+  --radius: 20px;
+  --radius-lg: 28px;
+}
