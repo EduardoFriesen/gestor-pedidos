@@ -36,6 +36,19 @@ function registerIpcHandlers() {
   ipcMain.handle('piu:getYearlyTrend', () => store.getYearlyTrend())
   ipcMain.handle('piu:getMonthComparison', () => store.getMonthComparison())
   ipcMain.handle('piu:getYearComparison', () => store.getYearComparison())
+  ipcMain.handle('piu:getWeeklyTrend', () => store.getWeeklyTrend())
+  ipcMain.handle('piu:getDayOfWeekDistribution', () => store.getDayOfWeekDistribution())
+  ipcMain.handle('piu:getDishProfitability', () => store.getDishProfitability())
+  ipcMain.handle('piu:getAnalyticsFiltered', (_, { startDate, endDate }) => store.getAnalyticsFiltered(startDate, endDate))
+  ipcMain.handle('piu:getPeriodComparison', (_, { p1Start, p1End, p2Start, p2End }) => store.getPeriodComparison(p1Start, p1End, p2Start, p2End))
+  ipcMain.handle('piu:getTrendsInRange', (_, { startDate, endDate }) => store.getTrendsInRange(startDate, endDate))
+  ipcMain.handle('piu:getIngredients', () => store.getIngredients())
+  ipcMain.handle('piu:createIngredient', (_, data) => store.createIngredient(data))
+  ipcMain.handle('piu:updateIngredient', (_, data) => store.updateIngredient(data))
+  ipcMain.handle('piu:deleteIngredient', (_, { id }) => store.deleteIngredient(id))
+  ipcMain.handle('piu:calculateDishCost', (_, { dishId }) => store.calculateDishCost(dishId))
+  ipcMain.handle('piu:getDefaultDeliveryFee', () => store.getDefaultDeliveryFee())
+  ipcMain.handle('piu:setDefaultDeliveryFee', (_, { fee }) => store.setDefaultDeliveryFee(fee))
 }
 
 function createWindow() {

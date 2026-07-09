@@ -11,7 +11,8 @@ export default function Orders() {
   const [editing, setEditing] = useState(null)
   const [week, setWeek] = useState(null)
   const [ordersOpen, setOrdersOpen] = useState(true)
-  const [form, setForm] = useState({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }] })
+  const [form, setForm] = useState({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: 500 })
+  const [defaultDeliveryFee, setDefaultDeliveryFee] = useState(500)
   const [showWeekSelector, setShowWeekSelector] = useState(false)
   const [pdfPreview, setPdfPreview] = useState(null)
   const [alternateWeek, setAlternateWeek] = useState(null)
@@ -24,17 +25,19 @@ export default function Orders() {
 
   const load = useCallback(() => {
     Promise.all([
-      window.piu?.getOrders(),
-      window.piu?.getDishes(),
-      window.piu?.getClients(),
-      window.piu?.getCurrentWeek(),
-      window.piu?.isOrdersOpen()
-    ]).then(([o, d, c, w, isOpen]) => {
+      (window.piu?.getOrders() || Promise.resolve([])).catch(() => []),
+      (window.piu?.getDishes() || Promise.resolve([])).catch(() => []),
+      (window.piu?.getClients() || Promise.resolve([])).catch(() => []),
+      (window.piu?.getCurrentWeek() || Promise.resolve(null)).catch(() => null),
+      (window.piu?.isOrdersOpen() || Promise.resolve(true)).catch(() => true),
+      (window.piu?.getDefaultDeliveryFee() || Promise.resolve(500)).catch(() => 500)
+    ]).then(([o, d, c, w, isOpen, fee]) => {
       setOrders(o || [])
       setDishes((d || []).filter(d => d && d.is_active))
       setClients(c || [])
       setWeek(w)
       setOrdersOpen(isOpen)
+      if (fee !== undefined) setDefaultDeliveryFee(fee)
     })
   }, [])
 
@@ -76,7 +79,7 @@ export default function Orders() {
     }
 
     setEditing(null)
-    setForm({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }] })
+    setForm({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: defaultDeliveryFee })
     setShowModal(true)
   }
 
@@ -84,7 +87,7 @@ export default function Orders() {
     setShowWeekSelector(false)
     if (choice === 'cancel') return
     setEditing(null)
-    setForm({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }], targetWeek: choice })
+    setForm({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: defaultDeliveryFee, targetWeek: choice })
     setShowModal(true)
   }
 
@@ -93,7 +96,9 @@ export default function Orders() {
     setForm({
       clientId: order.client_id,
       notes: order.notes || '',
-      items: order.items?.map(i => ({ dishId: i.dish_id, quantity: i.quantity })) || [{ dishId: '', quantity: 1 }]
+      items: order.items?.map(i => ({ dishId: i.dish_id, quantity: i.quantity })) || [{ dishId: '', quantity: 1 }],
+      has_delivery: !!order.has_delivery,
+      delivery_fee: order.delivery_fee || defaultDeliveryFee
     })
     setShowModal(true)
   }
@@ -104,7 +109,9 @@ export default function Orders() {
       clientId: parseInt(form.clientId),
       weekId: week.id,
       items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseInt(i.quantity) || 1 })),
-      notes: form.notes
+      notes: form.notes,
+      has_delivery: form.has_delivery,
+      delivery_fee: Number(form.delivery_fee) || 0
     }
     if (!editing && (await window.piu?.clientHasOrderThisWeek(parseInt(form.clientId)))) {
       const c = clients.find(x => x.id === parseInt(form.clientId))
@@ -345,6 +352,17 @@ export default function Orders() {
                     {item.dish_name} ×{item.quantity}
                   </span>
                 ))}
+                {order.has_delivery && (
+                  <span style={{
+                    background: 'var(--accent-light)',
+                    padding: 'var(--spacing-xs) var(--spacing-sm)',
+                    borderRadius: 'var(--radius)',
+                    fontSize: 'var(--font-body)',
+                    fontWeight: 700
+                  }}>
+                    Envío $${order.delivery_fee || 0}
+                  </span>
+                )}
               </div>
               {order.notes && (
                 <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
@@ -508,6 +526,52 @@ export default function Orders() {
               )}
             </div>
           ))}
+        </div>
+
+        <div className="form-group">
+          <label>Envío a domicilio</label>
+          <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${!form.has_delivery ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setForm(f => ({ ...f, has_delivery: false }))}
+            >
+              🚚 No
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${form.has_delivery ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setForm(f => ({ ...f, has_delivery: true }))}
+            >
+              🚚 Sí
+            </button>
+          </div>
+          {form.has_delivery && (
+            <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)', alignItems: 'center' }}>
+              <input
+                type="number"
+                min="0"
+                value={form.delivery_fee}
+                onChange={e => setForm(f => ({ ...f, delivery_fee: e.target.value }))}
+                style={{ width: '130px' }}
+                placeholder="Monto"
+              />
+              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+                Recargo por envío
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  window.piu?.setDefaultDeliveryFee(Number(form.delivery_fee) || 0)
+                  setDefaultDeliveryFee(Number(form.delivery_fee) || 0)
+                }}
+                title="Guardar este monto como valor por defecto"
+              >
+                💾
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="form-group">

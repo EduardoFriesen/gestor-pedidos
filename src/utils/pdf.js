@@ -1,16 +1,17 @@
 import { jsPDF } from 'jspdf'
 
-function calcLabelHeight(items) {
+function calcLabelHeight(items, hasDelivery) {
   const topGap = 3
   const nameRow = 4
   const phoneRow = 3
   const addrRow = 3
   const itemStart = 1
-  const itemRow = items.length * 5
+  const itemRow = items.length * 7
+  const deliveryRow = hasDelivery ? 4 : 0
   const totalRow = 3
   const idRow = 3
-  const bottomGap = 2
-  return topGap + nameRow + phoneRow + addrRow + itemStart + itemRow + totalRow + idRow + bottomGap
+  const bottomGap = 3
+  return topGap + nameRow + phoneRow + addrRow + itemStart + itemRow + deliveryRow + totalRow + idRow + bottomGap
 }
 
 export function generarEtiquetasDelivery(orders) {
@@ -25,7 +26,7 @@ export function generarEtiquetasDelivery(orders) {
 
   for (let i = 0; i < orders.length; i += cols) {
     const batch = orders.slice(i, i + cols)
-    const rowHeight = Math.max(...batch.map(o => calcLabelHeight(o.items)), 30)
+    const rowHeight = Math.max(...batch.map(o => calcLabelHeight(o.items, o.has_delivery)), 30)
 
     if (y + rowHeight > pageHeight - margin) {
       doc.addPage()
@@ -58,7 +59,7 @@ export function generarEtiquetasDelivery(orders) {
 
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(7)
-      let ty = y + 14
+      let ty = y + 15
       let orderTotal = 0
       for (const item of order.items) {
         const line = `${item.dish_name} x${item.quantity}`
@@ -74,7 +75,15 @@ export function generarEtiquetasDelivery(orders) {
         doc.text(`$${subTotal.toFixed(0)}`, x + labelW - 12, ty + 3.5)
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(7)
-        ty += 5
+        ty += 7
+      }
+
+      if (order.has_delivery) {
+        orderTotal += order.delivery_fee || 0
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(6)
+        doc.text(`Envío: $${(order.delivery_fee || 0).toFixed(0)}`, x + 2, ty)
+        ty += 4
       }
 
       doc.setFont('helvetica', 'bold')

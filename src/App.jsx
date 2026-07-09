@@ -7,6 +7,7 @@ import Menu from './pages/Menu'
 import Clients from './pages/Clients'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
+import Ingredients from './pages/Ingredients'
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('piu-theme') || 'claro')
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/menu" element={<Menu />} />
         <Route path="/clients" element={<Clients />} />
         <Route path="/analytics" element={<Analytics />} />
+        <Route path="/ingredients" element={<Ingredients />} />
         <Route path="/settings" element={<Settings theme={theme} setTheme={setTheme} macroMode={macroMode} setMacroMode={setMacroMode} />} />
       </Routes>
     </Layout>

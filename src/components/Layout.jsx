@@ -5,6 +5,7 @@ const navItems = [
   { path: '/', label: '📊 Producción', short: 'Prod' },
   { path: '/orders', label: '📝 Pedidos', short: 'Ped' },
   { path: '/menu', label: '🍽️ Menú', short: 'Menú' },
+  { path: '/ingredients', label: '🥘 Ingredientes', short: 'Ingr' },
   { path: '/clients', label: '👥 Clientes', short: 'Cli' },
   { path: '/analytics', label: '📊 Análisis', short: 'Anal' }
 ]

@@ -3,34 +3,77 @@ import Modal from '../components/Modal'
 
 export default function Menu() {
   const [dishes, setDishes] = useState([])
+  const [allIngredients, setAllIngredients] = useState([])
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', category: '', price: '', ingredients: '', is_active: true })
+  const [form, setForm] = useState({
+    name: '', category: '', price: '',
+    ingredientRows: [{ ingredientId: null, quantity: 0 }],
+    is_active: true
+  })
 
   const load = useCallback(() => {
     window.piu?.getDishes().then(setDishes)
+    window.piu?.getIngredients().then(setAllIngredients)
   }, [])
 
   useEffect(() => { load() }, [load])
 
   const openNew = () => {
     setEditing(null)
-    setForm({ name: '', category: '', price: '', ingredients: '', is_active: true })
+    setForm({ name: '', category: '', price: '', ingredientRows: [{ ingredientId: null, quantity: 0 }], is_active: true })
     setShowModal(true)
   }
 
   const openEdit = (dish) => {
     setEditing(dish)
+    const rows = (dish.ingredients || []).length > 0
+      ? dish.ingredients.map(i => ({ ingredientId: i.ingredientId, quantity: i.quantity }))
+      : [{ ingredientId: null, quantity: 0 }]
     setForm({
       name: dish.name,
       category: dish.category || '',
       price: dish.price?.toString() || '',
-      ingredients: dish.ingredients || '',
+      ingredientRows: rows,
       is_active: !!dish.is_active
     })
     setShowModal(true)
   }
+
+  const addRow = () => {
+    setForm(f => ({ ...f, ingredientRows: [...f.ingredientRows, { ingredientId: null, quantity: 0 }] }))
+  }
+
+  const removeRow = (index) => {
+    setForm(f => {
+      const rows = f.ingredientRows.filter((_, i) => i !== index)
+      return { ...f, ingredientRows: rows.length === 0 ? [{ ingredientId: null, quantity: 0 }] : rows }
+    })
+  }
+
+  const updateRow = (index, field, value) => {
+    setForm(f => {
+      const rows = [...f.ingredientRows]
+      rows[index] = { ...rows[index], [field]: value }
+      return { ...f, ingredientRows: rows }
+    })
+  }
+
+  const getIngredientInfo = (id) => {
+    return allIngredients.find(i => i.id === id)
+  }
+
+  const calcRowSubtotal = (row) => {
+    if (!row.ingredientId || !row.quantity) return 0
+    const ing = getIngredientInfo(row.ingredientId)
+    if (!ing) return 0
+    return ing.cost * row.quantity
+  }
+
+  const totalCost = form.ingredientRows.reduce((s, r) => s + calcRowSubtotal(r), 0)
+  const dishPrice = parseFloat(form.price) || 0
+  const margin = dishPrice > 0 ? ((dishPrice - totalCost) / dishPrice * 100) : 0
 
   const handleSave = async () => {
     if (!form.name.trim()) return
@@ -38,7 +81,7 @@ export default function Menu() {
       name: form.name.trim(),
       category: form.category,
       price: parseFloat(form.price) || 0,
-      ingredients: form.ingredients,
+      ingredients: form.ingredientRows.filter(r => r.ingredientId && r.quantity > 0),
       is_active: form.is_active
     }
     if (editing) {
@@ -58,6 +101,7 @@ export default function Menu() {
   }
 
   const categories = [...new Set(dishes.map(d => d.category).filter(Boolean))].sort()
+  const activeIngredients = allIngredients.filter(i => i.is_active)
 
   const q = search.toLowerCase()
   const filteredDishes = dishes.filter(d =>
@@ -125,17 +169,42 @@ export default function Menu() {
                     </span>
                   )}
                 </div>
-                {dish.price > 0 && (
-                  <p style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                    ${dish.price.toFixed(2)}
-                  </p>
-                )}
-                {dish.ingredients && (
+                <div style={{
+                  display: 'flex',
+                  gap: 'var(--spacing-md)',
+                  marginTop: 'var(--spacing-xs)',
+                  fontSize: 'var(--font-body)',
+                  color: 'var(--text-secondary)',
+                  flexWrap: 'wrap'
+                }}>
+                  {dish.price > 0 && (
+                    <span>Precio: <strong>${dish.price.toFixed(2)}</strong></span>
+                  )}
+                  {dish.computedCost > 0 && (
+                    <span>Costo: <strong>${dish.computedCost.toFixed(2)}</strong></span>
+                  )}
+                  {dish.price > 0 && dish.computedCost > 0 && (() => {
+                    const m = (dish.price - dish.computedCost) / dish.price * 100
+                    return (
+                      <span style={{
+                        color: m > 30 ? 'var(--success)' : m > 10 ? 'var(--accent)' : 'var(--danger)',
+                        fontWeight: 700
+                      }}>
+                        Margen: {m.toFixed(0)}%
+                      </span>
+                    )
+                  })()}
+                </div>
+                {dish.ingredients?.length > 0 && (
                   <details style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Ingredientes</summary>
-                    <pre style={{ whiteSpace: 'pre-wrap', marginTop: 'var(--spacing-xs)', fontSize: 'var(--font-sm)' }}>
-                      {dish.ingredients}
-                    </pre>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Ingredientes ({dish.ingredients.length})</summary>
+                    <div style={{ marginTop: 'var(--spacing-xs)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      {dish.ingredients.map((ing, i) => (
+                        <span key={i} style={{ fontSize: 'var(--font-sm)' }}>
+                          {ing.name && `${ing.name}: `}{ing.quantity} {ing.unit}{ing.subtotal > 0 ? ` ($${ing.subtotal.toFixed(2)})` : ''}
+                        </span>
+                      ))}
+                    </div>
                   </details>
                 )}
               </div>
@@ -189,17 +258,114 @@ export default function Menu() {
         </div>
 
         <div className="form-group">
-          <label>Ingredientes</label>
-          <textarea
-            value={form.ingredients}
-            onChange={e => setForm(f => ({ ...f, ingredients: e.target.value }))}
-            rows={4}
-            placeholder={"Ej:\nPapa: 1 kg\nCarne picada: 500 g\nCebolla: 2 uni"}
-          />
-          <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-            Formato: ingrediente: cantidad (uno por línea). Se usa para la lista de compras.
-          </p>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 'var(--spacing-sm)'
+          }}>
+            <label>Ingredientes</label>
+            <button className="btn btn-outline btn-sm" onClick={addRow}>
+              + Agregar ingrediente
+            </button>
+          </div>
+
+          {activeIngredients.length === 0 && (
+            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-sm)' }}>
+              No hay ingredientes cargados. Primero agregá ingredientes desde la sección "Ingredientes".
+            </p>
+          )}
+
+          {form.ingredientRows.map((row, index) => {
+            const ingInfo = row.ingredientId ? getIngredientInfo(row.ingredientId) : null
+            const subtotal = calcRowSubtotal(row)
+            return (
+              <div key={index} style={{
+                display: 'flex',
+                gap: 'var(--spacing-sm)',
+                alignItems: 'flex-end',
+                marginBottom: 'var(--spacing-sm)'
+              }}>
+                <div style={{ flex: 2 }}>
+                  {index === 0 && <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Ingrediente</label>}
+                  <select
+                    value={row.ingredientId || ''}
+                    onChange={e => updateRow(index, 'ingredientId', e.target.value ? parseInt(e.target.value) : null)}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {activeIngredients.map(ing => (
+                      <option key={ing.id} value={ing.id}>
+                        {ing.name} (${ing.cost.toFixed(2)}/{ing.unit})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  {index === 0 && <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Cantidad</label>}
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={row.quantity || ''}
+                      onChange={e => updateRow(index, 'quantity', parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                      style={{ flex: 1 }}
+                    />
+                    {ingInfo && (
+                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', minWidth: '30px' }}>
+                        {ingInfo.unit}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ flex: 1, paddingBottom: 'var(--spacing-sm)' }}>
+                  {index === 0 && <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Subtotal</label>}
+                  <span style={{
+                    fontSize: 'var(--font-body)',
+                    fontWeight: 700,
+                    color: subtotal > 0 ? 'var(--text)' : 'var(--text-secondary)'
+                  }}>
+                    ${subtotal.toFixed(2)}
+                  </span>
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => removeRow(index)}
+                  aria-label="Quitar ingrediente"
+                  style={{ paddingBottom: 'var(--spacing-sm)', marginBottom: 0 }}
+                >
+                  ✕
+                </button>
+              </div>
+            )
+          })}
         </div>
+
+        {(totalCost > 0 || dishPrice > 0) && (
+          <div className="card" style={{
+            padding: 'var(--spacing-md)',
+            marginBottom: 'var(--spacing-md)',
+            background: 'var(--primary-light)'
+          }}>
+            <div style={{ display: 'flex', gap: 'var(--spacing-lg)', flexWrap: 'wrap', fontSize: 'var(--font-body)' }}>
+              {totalCost > 0 && (
+                <span>Costo producción: <strong>${totalCost.toFixed(2)}</strong></span>
+              )}
+              {dishPrice > 0 && (
+                <span>Precio venta: <strong>${dishPrice.toFixed(2)}</strong></span>
+              )}
+              {dishPrice > 0 && totalCost > 0 && (
+                <span style={{
+                  color: margin >= 30 ? 'var(--success)' : margin >= 10 ? 'var(--accent)' : 'var(--danger)',
+                  fontWeight: 700
+                }}>
+                  Margen: {margin.toFixed(0)}% (${(dishPrice - totalCost).toFixed(2)})
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="form-group">
           <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
@@ -207,7 +373,7 @@ export default function Menu() {
               type="checkbox"
               checked={form.is_active}
               onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}
-                style={{ width: '24px', height: '24px' }}
+              style={{ width: '24px', height: '24px' }}
             />
             Plato activo (visible en pedidos)
           </label>

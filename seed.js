@@ -54,6 +54,109 @@ function getSaturday(date) {
   return d
 }
 
+// ============== INGREDIENT CATALOG ==============
+
+const INGREDIENT_CATALOG = [
+  { name: 'Harina 0000', unit: 'kg', cost: 150, category: 'Secos' },
+  { name: 'Agua', unit: 'l', cost: 1, category: 'Básicos' },
+  { name: 'Levadura fresca', unit: 'g', cost: 0.5, category: 'Secos' },
+  { name: 'Sal', unit: 'kg', cost: 50, category: 'Secos' },
+  { name: 'Muzzarella', unit: 'kg', cost: 800, category: 'Lácteos' },
+  { name: 'Salsa de tomate', unit: 'l', cost: 300, category: 'Conservas' },
+  { name: 'Aceite de oliva', unit: 'l', cost: 1500, category: 'Aceites' },
+  { name: 'Tomate perita', unit: 'uni', cost: 80, category: 'Verduras' },
+  { name: 'Ajo', unit: 'uni', cost: 60, category: 'Verduras' },
+  { name: 'Cebolla', unit: 'uni', cost: 50, category: 'Verduras' },
+  { name: 'Orégano', unit: 'g', cost: 1, category: 'Especias' },
+  { name: 'Jamón cocido', unit: 'kg', cost: 1200, category: 'Fiambres' },
+  { name: 'Morrón', unit: 'uni', cost: 100, category: 'Verduras' },
+  { name: 'Aceitunas verdes', unit: 'kg', cost: 800, category: 'Conservas' },
+  { name: 'Huevo', unit: 'uni', cost: 50, category: 'Huevos' },
+  { name: 'Longaniza', unit: 'kg', cost: 1000, category: 'Carnes' },
+  { name: 'Tapas para empanada', unit: 'doc', cost: 200, category: 'Masa' },
+  { name: 'Carne (cortada a cuchillo)', unit: 'kg', cost: 1500, category: 'Carnes' },
+  { name: 'Comino', unit: 'g', cost: 0.8, category: 'Especias' },
+  { name: 'Pimentón', unit: 'g', cost: 0.6, category: 'Especias' },
+  { name: 'Grasa de pella', unit: 'kg', cost: 300, category: 'Grasas' },
+  { name: 'Ají molido', unit: 'g', cost: 0.7, category: 'Especias' },
+  { name: 'Pollo', unit: 'kg', cost: 800, category: 'Carnes' },
+  { name: 'Crema de leche', unit: 'l', cost: 600, category: 'Lácteos' },
+  { name: 'Choclo', unit: 'uni', cost: 80, category: 'Verduras' },
+  { name: 'Salsa blanca', unit: 'l', cost: 400, category: 'Salsas' },
+  { name: 'Albahaca', unit: 'g', cost: 1, category: 'Especias' },
+  { name: 'Queso cremoso', unit: 'kg', cost: 900, category: 'Lácteos' },
+  { name: 'Tapas de tarta', unit: 'doc', cost: 250, category: 'Masa' },
+  { name: 'Zapallito', unit: 'uni', cost: 60, category: 'Verduras' },
+  { name: 'Zanahoria', unit: 'uni', cost: 40, category: 'Verduras' },
+  { name: 'Calabaza', unit: 'kg', cost: 200, category: 'Verduras' },
+  { name: 'Nuez moscada', unit: 'g', cost: 3, category: 'Especias' },
+  { name: 'Espinaca', unit: 'kg', cost: 300, category: 'Verduras' },
+  { name: 'Ricota', unit: 'kg', cost: 500, category: 'Lácteos' },
+  { name: 'Queso rallado', unit: 'kg', cost: 700, category: 'Lácteos' },
+  { name: 'Salsa bolognesa', unit: 'l', cost: 350, category: 'Salsas' },
+  { name: 'Carne picada', unit: 'kg', cost: 1200, category: 'Carnes' },
+  { name: 'Papa', unit: 'kg', cost: 100, category: 'Verduras' },
+  { name: 'Salsa filetto', unit: 'l', cost: 300, category: 'Salsas' },
+  { name: 'Láminas de pasta', unit: 'kg', cost: 400, category: 'Masa' },
+  { name: 'Lomo', unit: 'kg', cost: 2500, category: 'Carnes' },
+  { name: 'Pan de miga', unit: 'uni', cost: 150, category: 'Pan' },
+  { name: 'Lechuga', unit: 'uni', cost: 40, category: 'Verduras' },
+  { name: 'Mayonesa', unit: 'l', cost: 400, category: 'Salsas' },
+  { name: 'Milanesa de carne', unit: 'kg', cost: 2000, category: 'Carnes' },
+  { name: 'Medallón de garbanzo', unit: 'uni', cost: 300, category: 'Congelados' },
+  { name: 'Pan integral', unit: 'uni', cost: 120, category: 'Pan' },
+  { name: 'Palta', unit: 'uni', cost: 200, category: 'Verduras' },
+  { name: 'Mostaza', unit: 'l', cost: 350, category: 'Salsas' },
+  { name: 'Bondiola', unit: 'kg', cost: 1800, category: 'Carnes' },
+  { name: 'Cebolla morada', unit: 'uni', cost: 60, category: 'Verduras' },
+  { name: 'Salsa criolla', unit: 'l', cost: 300, category: 'Salsas' },
+  { name: 'Pan de hamburguesa', unit: 'uni', cost: 100, category: 'Pan' },
+  { name: 'Queso cheddar', unit: 'kg', cost: 1000, category: 'Lácteos' },
+  { name: 'Panceta', unit: 'kg', cost: 1500, category: 'Fiambres' },
+  { name: 'Papas fritas (congeladas)', unit: 'kg', cost: 400, category: 'Congelados' },
+  { name: 'Huevo duro', unit: 'uni', cost: 55, category: 'Huevos' },
+]
+
+// ============== 25 DISHES ==============
+
+const DISH_TEMPLATES = {
+  Pizzas: [
+    { name: 'Muzzarella', price: 3800, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Sal', qty: 0.005 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Aceite de oliva', qty: 0.03 }] },
+    { name: 'Napolitana', price: 4200, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Tomate perita', qty: 2 }, { name: 'Ajo', qty: 3 }, { name: 'Aceite de oliva', qty: 0.03 }] },
+    { name: 'Fugazzeta', price: 4500, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.25 }, { name: 'Cebolla', qty: 2 }, { name: 'Aceite de oliva', qty: 0.03 }, { name: 'Orégano', qty: 5 }] },
+    { name: 'Especial', price: 4800, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Jamón cocido', qty: 0.1 }, { name: 'Morrón', qty: 1 }, { name: 'Aceitunas verdes', qty: 0.05 }, { name: 'Huevo', qty: 1 }] },
+    { name: 'Calabresa', price: 4600, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Longaniza', qty: 0.15 }, { name: 'Morrón', qty: 1 }, { name: 'Aceite de oliva', qty: 0.03 }] }
+  ],
+  Empanadas: [
+    { name: 'Carne cortada a cuchillo', price: 3200, ingr: [{ name: 'Tapas para empanada', qty: 1 }, { name: 'Carne (cortada a cuchillo)', qty: 0.5 }, { name: 'Cebolla', qty: 2 }, { name: 'Huevo duro', qty: 3 }, { name: 'Aceitunas verdes', qty: 0.05 }, { name: 'Comino', qty: 5 }, { name: 'Pimentón', qty: 5 }, { name: 'Grasa de pella', qty: 0.05 }] },
+    { name: 'Carne picante', price: 3400, ingr: [{ name: 'Tapas para empanada', qty: 1 }, { name: 'Carne (cortada a cuchillo)', qty: 0.5 }, { name: 'Cebolla', qty: 2 }, { name: 'Ají molido', qty: 10 }, { name: 'Huevo duro', qty: 3 }, { name: 'Aceitunas verdes', qty: 0.05 }, { name: 'Pimentón', qty: 5 }] },
+    { name: 'Pollo', price: 3000, ingr: [{ name: 'Tapas para empanada', qty: 1 }, { name: 'Pollo', qty: 0.4 }, { name: 'Cebolla', qty: 2 }, { name: 'Morrón', qty: 1 }, { name: 'Crema de leche', qty: 0.1 }, { name: 'Comino', qty: 5 }, { name: 'Huevo duro', qty: 2 }] },
+    { name: 'Jamón y queso', price: 2800, ingr: [{ name: 'Tapas para empanada', qty: 1 }, { name: 'Jamón cocido', qty: 0.2 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Crema de leche', qty: 0.05 }] },
+    { name: 'Humita', price: 2900, ingr: [{ name: 'Tapas para empanada', qty: 1 }, { name: 'Choclo', qty: 3 }, { name: 'Cebolla', qty: 1 }, { name: 'Salsa blanca', qty: 0.2 }, { name: 'Albahaca', qty: 10 }, { name: 'Queso cremoso', qty: 0.1 }] }
+  ],
+  Tartas: [
+    { name: 'Pollo y verduras', price: 3500, ingr: [{ name: 'Tapas de tarta', qty: 1 }, { name: 'Pollo', qty: 0.3 }, { name: 'Cebolla', qty: 1 }, { name: 'Zapallito', qty: 2 }, { name: 'Zanahoria', qty: 1 }, { name: 'Crema de leche', qty: 0.1 }, { name: 'Huevo', qty: 3 }] },
+    { name: 'Calabaza', price: 3300, ingr: [{ name: 'Tapas de tarta', qty: 1 }, { name: 'Calabaza', qty: 0.5 }, { name: 'Cebolla', qty: 1 }, { name: 'Queso cremoso', qty: 0.1 }, { name: 'Crema de leche', qty: 0.1 }, { name: 'Nuez moscada', qty: 3 }, { name: 'Huevo', qty: 3 }] },
+    { name: 'Espinaca y ricota', price: 3400, ingr: [{ name: 'Tapas de tarta', qty: 1 }, { name: 'Espinaca', qty: 0.4 }, { name: 'Ricota', qty: 0.2 }, { name: 'Ajo', qty: 2 }, { name: 'Huevo', qty: 3 }, { name: 'Queso rallado', qty: 0.05 }] },
+    { name: 'Zapallito', price: 3200, ingr: [{ name: 'Tapas de tarta', qty: 1 }, { name: 'Zapallito', qty: 0.5 }, { name: 'Cebolla', qty: 2 }, { name: 'Queso cremoso', qty: 0.1 }, { name: 'Huevo', qty: 3 }, { name: 'Albahaca', qty: 10 }] },
+    { name: 'Choclo', price: 3300, ingr: [{ name: 'Tapas de tarta', qty: 1 }, { name: 'Choclo', qty: 4 }, { name: 'Cebolla', qty: 1 }, { name: 'Crema de leche', qty: 0.15 }, { name: 'Huevo', qty: 3 }, { name: 'Pimentón', qty: 5 }] }
+  ],
+  Pastas: [
+    { name: 'Ravioles de ricota y espinaca', price: 4200, ingr: [{ name: 'Harina 0000', qty: 0.3 }, { name: 'Huevo', qty: 4 }, { name: 'Ricota', qty: 0.25 }, { name: 'Espinaca', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.2 }, { name: 'Queso rallado', qty: 0.05 }] },
+    { name: 'Tallarines al huevo', price: 3800, ingr: [{ name: 'Harina 0000', qty: 0.3 }, { name: 'Huevo', qty: 4 }, { name: 'Salsa bolognesa', qty: 0.2 }, { name: 'Carne picada', qty: 0.2 }, { name: 'Tomate perita', qty: 2 }, { name: 'Queso rallado', qty: 0.05 }] },
+    { name: 'Ñoquis de papa', price: 3600, ingr: [{ name: 'Papa', qty: 0.5 }, { name: 'Harina 0000', qty: 0.2 }, { name: 'Huevo', qty: 1 }, { name: 'Salsa filetto', qty: 0.2 }, { name: 'Queso rallado', qty: 0.05 }, { name: 'Sal', qty: 0.005 }] },
+    { name: 'Sorrentinos', price: 4400, ingr: [{ name: 'Harina 0000', qty: 0.3 }, { name: 'Huevo', qty: 4 }, { name: 'Jamón cocido', qty: 0.15 }, { name: 'Muzzarella', qty: 0.15 }, { name: 'Ricota', qty: 0.1 }, { name: 'Crema de leche', qty: 0.2 }] },
+    { name: 'Lasagna', price: 4800, ingr: [{ name: 'Láminas de pasta', qty: 0.3 }, { name: 'Carne picada', qty: 0.3 }, { name: 'Salsa de tomate', qty: 0.3 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Ricota', qty: 0.15 }, { name: 'Espinaca', qty: 0.1 }] }
+  ],
+  Sandwiches: [
+    { name: 'Lomito completo', price: 5200, ingr: [{ name: 'Lomo', qty: 0.2 }, { name: 'Pan de miga', qty: 1 }, { name: 'Lechuga', qty: 1 }, { name: 'Tomate perita', qty: 1 }, { name: 'Huevo', qty: 1 }, { name: 'Jamón cocido', qty: 0.05 }, { name: 'Queso cremoso', qty: 0.05 }, { name: 'Papas fritas (congeladas)', qty: 0.15 }] },
+    { name: 'Milanesa', price: 4800, ingr: [{ name: 'Milanesa de carne', qty: 0.2 }, { name: 'Pan de miga', qty: 1 }, { name: 'Lechuga', qty: 1 }, { name: 'Tomate perita', qty: 1 }, { name: 'Mayonesa', qty: 0.03 }, { name: 'Jamón cocido', qty: 0.05 }, { name: 'Queso cremoso', qty: 0.05 }] },
+    { name: 'Veggie', price: 4200, ingr: [{ name: 'Medallón de garbanzo', qty: 1 }, { name: 'Pan integral', qty: 1 }, { name: 'Lechuga', qty: 1 }, { name: 'Tomate perita', qty: 1 }, { name: 'Palta', qty: 0.5 }, { name: 'Mostaza', qty: 0.02 }] },
+    { name: 'Bondiola', price: 5000, ingr: [{ name: 'Bondiola', qty: 0.2 }, { name: 'Pan de miga', qty: 1 }, { name: 'Lechuga', qty: 1 }, { name: 'Tomate perita', qty: 1 }, { name: 'Cebolla morada', qty: 0.5 }, { name: 'Salsa criolla', qty: 0.05 }] },
+    { name: 'Hamburguesa artesanal', price: 4600, ingr: [{ name: 'Carne picada', qty: 0.2 }, { name: 'Pan de hamburguesa', qty: 1 }, { name: 'Lechuga', qty: 1 }, { name: 'Tomate perita', qty: 1 }, { name: 'Queso cheddar', qty: 0.05 }, { name: 'Panceta', qty: 0.05 }, { name: 'Papas fritas (congeladas)', qty: 0.15 }] }
+  ]
+}
+
 // ============== 60 CLIENTS ==============
 
 const NAMES = [
@@ -137,57 +240,37 @@ function generateClients() {
   return clients
 }
 
-// ============== 25 DISHES ==============
-
-const DISH_TEMPLATES = {
-  Pizzas: [
-    { name: 'Muzzarella', price: 3800, ingr: 'Harina 0000: 250 g\nAgua: 150 ml\nLevadura: 10 g\nSal: 5 g\nMuzzarella: 200 g\nSalsa de tomate: 100 ml\nAceite de oliva: 30 ml' },
-    { name: 'Napolitana', price: 4200, ingr: 'Harina 0000: 250 g\nAgua: 150 ml\nLevadura: 10 g\nMuzzarella: 200 g\nSalsa de tomate: 100 ml\nTomate: 2 uni\nAjo: 3 dientes\nAceite de oliva: 30 ml' },
-    { name: 'Fugazzeta', price: 4500, ingr: 'Harina 0000: 250 g\nAgua: 150 ml\nLevadura: 10 g\nMuzzarella: 250 g\nCebolla: 2 uni\nAceite de oliva: 30 ml\nOrégano: 5 g' },
-    { name: 'Especial', price: 4800, ingr: 'Harina 0000: 250 g\nAgua: 150 ml\nLevadura: 10 g\nMuzzarella: 200 g\nSalsa de tomate: 100 ml\nJamón: 100 g\nMorrón: 1 uni\nAceitunas: 50 g\nHuevo: 1 uni' },
-    { name: 'Calabresa', price: 4600, ingr: 'Harina 0000: 250 g\nAgua: 150 ml\nLevadura: 10 g\nMuzzarella: 200 g\nSalsa de tomate: 100 ml\nLonganiza: 150 g\nMorrón: 1 uni\nAceite de oliva: 30 ml' }
-  ],
-  Empanadas: [
-    { name: 'Carne cortada a cuchillo', price: 3200, ingr: 'Tapas para empanada: 12 uni\nCarne: 500 g\nCebolla: 2 uni\nHuevo duro: 3 uni\nAceitunas: 50 g\nComino: 5 g\nPimentón: 5 g\nGrasa de pella: 50 g' },
-    { name: 'Carne picante', price: 3400, ingr: 'Tapas para empanada: 12 uni\nCarne: 500 g\nCebolla: 2 uni\nAjí molido: 10 g\nHuevo duro: 3 uni\nAceitunas: 50 g\nPimentón: 5 g' },
-    { name: 'Pollo', price: 3000, ingr: 'Tapas para empanada: 12 uni\nPollo: 400 g\nCebolla: 2 uni\nMorrón: 1 uni\nCrema: 100 ml\nComino: 5 g\nHuevo duro: 2 uni' },
-    { name: 'Jamón y queso', price: 2800, ingr: 'Tapas para empanada: 12 uni\nJamón cocido: 200 g\nMuzzarella: 200 g\nCrema: 50 ml' },
-    { name: 'Humita', price: 2900, ingr: 'Tapas para empanada: 12 uni\nChoclo: 3 uni\nCebolla: 1 uni\nSalsa blanca: 200 ml\nAlbahaca: 10 g\nQueso cremoso: 100 g' }
-  ],
-  Tartas: [
-    { name: 'Pollo y verduras', price: 3500, ingr: 'Tapas de tarta: 2 uni\nPollo: 300 g\nCebolla: 1 uni\nZapallito: 2 uni\nZanahoria: 1 uni\nCrema: 100 ml\nHuevo: 3 uni' },
-    { name: 'Calabaza', price: 3300, ingr: 'Tapas de tarta: 2 uni\nCalabaza: 500 g\nCebolla: 1 uni\nQueso cremoso: 100 g\nCrema: 100 ml\nNuez moscada: 3 g\nHuevo: 3 uni' },
-    { name: 'Espinaca y ricota', price: 3400, ingr: 'Tapas de tarta: 2 uni\nEspinaca: 400 g\nRicota: 200 g\nAjo: 2 dientes\nHuevo: 3 uni\nQueso rallado: 50 g' },
-    { name: 'Zapallito', price: 3200, ingr: 'Tapas de tarta: 2 uni\nZapallito: 500 g\nCebolla: 2 uni\nQueso cremoso: 100 g\nHuevo: 3 uni\nAlbahaca: 10 g' },
-    { name: 'Choclo', price: 3300, ingr: 'Tapas de tarta: 2 uni\nChoclo: 4 uni\nCebolla: 1 uni\nCrema: 150 ml\nHuevo: 3 uni\nPimentón: 5 g' }
-  ],
-  Pastas: [
-    { name: 'Ravioles de ricota y espinaca', price: 4200, ingr: 'Harina 0000: 300 g\nHuevo: 4 uni\nRicota: 250 g\nEspinaca: 200 g\nSalsa de tomate: 200 ml\nQueso rallado: 50 g' },
-    { name: 'Tallarines al huevo', price: 3800, ingr: 'Harina 0000: 300 g\nHuevo: 4 uni\nSalsa bolognesa: 200 ml\nCarne picada: 200 g\nTomate: 2 uni\nQueso rallado: 50 g' },
-    { name: 'Ñoquis de papa', price: 3600, ingr: 'Papa: 500 g\nHarina 0000: 200 g\nHuevo: 1 uni\nSalsa filetto: 200 ml\nQueso rallado: 50 g\nSal: 5 g' },
-    { name: 'Sorrentinos', price: 4400, ingr: 'Harina 0000: 300 g\nHuevo: 4 uni\nJamón: 150 g\nMuzzarella: 150 g\nRicota: 100 g\nSalsa crema: 200 ml' },
-    { name: 'Lasagna', price: 4800, ingr: 'Láminas de pasta: 300 g\nCarne picada: 300 g\nSalsa de tomate: 300 ml\nMuzzarella: 200 g\nRicota: 150 g\nEspinaca: 100 g' }
-  ],
-  Sandwiches: [
-    { name: 'Lomito completo', price: 5200, ingr: 'Lomo: 200 g\nPan de miga: 1 uni\nLechuga: 50 g\nTomate: 1 uni\nHuevo: 1 uni\nJamón: 50 g\nQueso: 50 g\nPapas fritas: 150 g' },
-    { name: 'Milanesa', price: 4800, ingr: 'Milanesa de carne: 200 g\nPan de miga: 1 uni\nLechuga: 50 g\nTomate: 1 uni\nMayonesa: 30 ml\nJamón: 50 g\nQueso: 50 g' },
-    { name: 'Veggie', price: 4200, ingr: 'Medallón de garbanzo: 200 g\nPan integral: 1 uni\nLechuga: 50 g\nTomate: 1 uni\nPalta: 50 g\nMostaza: 20 ml' },
-    { name: 'Bondiola', price: 5000, ingr: 'Bondiola: 200 g\nPan de miga: 1 uni\nLechuga: 50 g\nTomate: 1 uni\nCebolla morada: 50 g\nSalsa criolla: 50 ml' },
-    { name: 'Hamburguesa artesanal', price: 4600, ingr: 'Carne picada: 200 g\nPan de hamburguesa: 1 uni\nLechuga: 50 g\nTomate: 1 uni\nQueso cheddar: 50 g\nPanceta: 50 g\nPapas fritas: 150 g' }
-  ]
+function generateIngredients() {
+  return INGREDIENT_CATALOG.map((ing, i) => ({
+    id: i + 1,
+    name: ing.name,
+    unit: ing.unit,
+    cost: ing.cost,
+    category: ing.category,
+    is_active: true
+  }))
 }
 
-function generateDishes() {
+function generateDishes(ingredients) {
+  const ingByName = {}
+  for (const ing of ingredients) {
+    ingByName[ing.name] = ing
+  }
+
   let id = 1
   const dishes = []
   for (const [category, items] of Object.entries(DISH_TEMPLATES)) {
     for (const item of items) {
+      const structuredIngredients = item.ingr.map(i => {
+        const ing = ingByName[i.name]
+        return { ingredientId: ing ? ing.id : null, quantity: i.qty }
+      })
       dishes.push({
         id: id++,
         name: item.name,
         category,
         price: item.price,
-        ingredients: item.ingr,
+        ingredients: structuredIngredients,
         is_active: true
       })
     }
@@ -197,18 +280,17 @@ function generateDishes() {
 
 // ============== WEEKS ==============
 
-function generateWeeks(allDishes) {
+function generateWeeks(allDishes, clients, ingredients) {
   const weeks = []
   let weekId = 1
   let orderId = 1
   let itemId = 1
   let prodId = 1
-  const clients = generateClients()
+  let ingId = ingredients.length + 1
   const allClients = clients.map(c => c.id)
 
-  // Generate weeks from Jan 2024 to current week
   const currentSunday = getSunday(NOW)
-  const startDate = getSunday(new Date(2024, 0, 1))
+  const startDate = getSunday(new Date(2020, 0, 1))
   const totalWeeks = Math.ceil((currentSunday.getTime() - startDate.getTime()) / (7 * 86400000))
   const weekData = []
 
@@ -229,22 +311,15 @@ function generateWeeks(allDishes) {
     }
     weeks.push(week)
 
-    if (ws < '2024-05-01') {
-      // Early weeks: fewer clients, smaller orders
+    if (ws < '2023-01-01') {
       weekData.push({ week, orders: [], orderItems: [], productionLogs: [] })
       continue
     }
 
-    // Vary the menu: 10-15 dishes available each week, some rotation
     const availableDishes = pick(allDishes, 10 + randInt(0, 5))
     availableDishes.sort((a, b) => a.id - b.id)
 
-    // Seasonality: more orders in summer (Dec-Feb), fewer in winter (Jun-Aug)
-    const month = weekStart.getMonth()
-    let seasonalBase = 25
-    if (month >= 11 || month <= 1) seasonalBase = 35
-    else if (month >= 5 && month <= 7) seasonalBase = 18
-    const numOrders = Math.min(allClients.length, seasonalBase + randInt(-5, 10))
+    const numOrders = randInt(10, 30)
 
     const participatingClients = pick(allClients, Math.min(allClients.length, Math.floor(numOrders * 0.7) + randInt(0, 10)))
 
@@ -270,6 +345,8 @@ function generateWeeks(allDishes) {
         week_id: week.id,
         status: isCurrent && dayOffset > 4 ? 'pending' : status,
         notes,
+        has_delivery: RNG() > 0.5,
+        delivery_fee: RNG() > 0.5 ? (RNG() > 0.5 ? 500 : 700) : 0,
         created_at: fmtDatetime(orderDay)
       }
       orders.push(order)
@@ -280,7 +357,6 @@ function generateWeeks(allDishes) {
       }
     }
 
-    // Production logs
     for (const dish of availableDishes) {
       const totalOrdered = orderItems
         .filter(oi => oi.dish_id === dish.id)
@@ -322,7 +398,6 @@ function generateWeeks(allDishes) {
     weekData.push({ week, orders, orderItems, productionLogs })
   }
 
-  // Combine all weeks' data
   const allOrders = weekData.flatMap(wd => wd.orders)
   const allOrderItems = weekData.flatMap(wd => wd.orderItems)
   const allProductionLogs = weekData.flatMap(wd => wd.productionLogs)
@@ -331,23 +406,28 @@ function generateWeeks(allDishes) {
     weeks,
     dishes: allDishes,
     clients,
+    ingredients,
     orders: allOrders,
     orderItems: allOrderItems,
     productionLog: allProductionLogs,
-    _nextId: prodId + itemId + orderId + weekId + allDishes.length + clients.length + 100
+    deliverySettings: { defaultFee: 500 },
+    _nextId: prodId + itemId + orderId + weekId + allDishes.length + clients.length + allDishes.length + 100
   }
 }
 
 // ============== MAIN ==============
 
 function main() {
-  const allDishes = generateDishes()
-  const data = generateWeeks(allDishes)
+  const ingredients = generateIngredients()
+  const allDishes = generateDishes(ingredients)
+  const clients = generateClients()
+  const data = generateWeeks(allDishes, clients, ingredients)
 
-  // Determine path: use XDG config or fallback
-  const configDir = process.env.XDG_CONFIG_HOME
-    ? path.join(process.env.XDG_CONFIG_HOME, 'piu')
-    : path.join(os.homedir(), '.config', 'piu')
+  const configDir = process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'piu')
+    : process.env.XDG_CONFIG_HOME
+      ? path.join(process.env.XDG_CONFIG_HOME, 'piu')
+      : path.join(os.homedir(), '.config', 'piu')
 
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true })
@@ -356,7 +436,6 @@ function main() {
   const filePath = path.join(configDir, 'piu.json')
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
 
-  // Summary
   const totalOrders = data.orders.length
   const totalItems = data.orderItems.length
   const weekSummaries = data.weeks.map(w => {
@@ -365,12 +444,18 @@ function main() {
     return `  ${w.week_start} → ${w.week_end}${w.is_current ? ' (actual)' : ''}: ${weekOrders.length} pedidos, ${weekClients} clientes`
   })
 
-  const topClients = {}
-  for (const o of data.orders) {
-    topClients[o.client_id] = (topClients[o.client_id] || 0) + 1
-  }
-  const topClientId = Object.entries(topClients).sort((a, b) => b[1] - a[1])[0]
-  const topClient = data.clients.find(c => c.id === parseInt(topClientId[0]))
+  const topClientId = Object.entries(
+    data.orders.reduce((acc, o) => { acc[o.client_id] = (acc[o.client_id] || 0) + 1; return acc }, {})
+  ).sort((a, b) => b[1] - a[1])[0]
+  const topClient = data.clients.find(c => c.id === parseInt(topClientId?.[0]))
+
+  const costExamples = allDishes.slice(0, 5).map(d => {
+    const cost = d.ingredients.reduce((sum, item) => {
+      const ing = ingredients.find(i => i.id === item.ingredientId)
+      return sum + (ing?.cost || 0) * item.quantity
+    }, 0)
+    return `  ${d.name}: costo $${cost.toFixed(2)} → precio $${d.price.toFixed(2)} (margen ${((d.price - cost) / d.price * 100).toFixed(0)}%)`
+  })
 
   console.log(`
 ╔══════════════════════════════════════╗
@@ -378,17 +463,25 @@ function main() {
 ╠══════════════════════════════════════╣
 ║  Archivo: ${filePath}
 ╠══════════════════════════════════════╣
-║  Clientes:      ${String(data.clients.length).padStart(4)}
-║  Platos:        ${String(data.dishes.length).padStart(4)}
-║  Pedidos total: ${String(totalOrders).padStart(4)}
-║  Items total:   ${String(totalItems).padStart(4)}
+║  Ingredientes: ${String(ingredients.length).padStart(4)}
+║  Platos:       ${String(allDishes.length).padStart(4)}
+║  Clientes:     ${String(clients.length).padStart(4)}
+║  Pedidos:      ${String(totalOrders).padStart(4)}
+║  Items:        ${String(totalItems).padStart(4)}
 ╠══════════════════════════════════════╣`)
   for (const s of weekSummaries) {
     console.log(s)
   }
   console.log(`╠══════════════════════════════════════╣`)
-  console.log(`║  Cliente top: ${(topClient?.name + ' ' + topClient?.last_name).padEnd(24)}║`)
-  console.log(`║  Pedidos del top: ${String(topClientId[1]).padStart(18)}║`)
+  console.log(`║  Costos de producción (ejemplos):     ║`)
+  for (const c of costExamples) {
+    console.log(c.padEnd(42))
+  }
+  console.log(`╠══════════════════════════════════════╣`)
+  if (topClient) {
+    console.log(`║  Cliente top: ${(topClient.name + ' ' + topClient.last_name).padEnd(24)}║`)
+    console.log(`║  Pedidos del top: ${String(topClientId[1]).padStart(18)}║`)
+  }
   console.log(`╚══════════════════════════════════════╝`)
 }
 

@@ -31,5 +31,19 @@ contextBridge.exposeInMainWorld('piu', {
   getMonthlyTrend: () => ipcRenderer.invoke('piu:getMonthlyTrend'),
   getYearlyTrend: () => ipcRenderer.invoke('piu:getYearlyTrend'),
   getMonthComparison: () => ipcRenderer.invoke('piu:getMonthComparison'),
-  getYearComparison: () => ipcRenderer.invoke('piu:getYearComparison')
+  getYearComparison: () => ipcRenderer.invoke('piu:getYearComparison'),
+  getWeeklyTrend: () => ipcRenderer.invoke('piu:getWeeklyTrend'),
+  getDayOfWeekDistribution: () => ipcRenderer.invoke('piu:getDayOfWeekDistribution'),
+  getDishProfitability: () => ipcRenderer.invoke('piu:getDishProfitability'),
+  getAnalyticsFiltered: (startDate, endDate) => ipcRenderer.invoke('piu:getAnalyticsFiltered', { startDate, endDate }),
+  getPeriodComparison: (p1Start, p1End, p2Start, p2End) => ipcRenderer.invoke('piu:getPeriodComparison', { p1Start, p1End, p2Start, p2End }),
+  getTrendsInRange: (startDate, endDate) => ipcRenderer.invoke('piu:getTrendsInRange', { startDate, endDate }),
+  getIngredients: () => ipcRenderer.invoke('piu:getIngredients'),
+  createIngredient: (data) => ipcRenderer.invoke('piu:createIngredient', data),
+  updateIngredient: (data) => ipcRenderer.invoke('piu:updateIngredient', data),
+  deleteIngredient: (id) => ipcRenderer.invoke('piu:deleteIngredient', { id }),
+  calculateDishCost: (dishId) => ipcRenderer.invoke('piu:calculateDishCost', { dishId }),
+  getIngredientCategories: () => ipcRenderer.invoke('piu:getIngredientCategories'),
+  getDefaultDeliveryFee: () => ipcRenderer.invoke('piu:getDefaultDeliveryFee'),
+  setDefaultDeliveryFee: (fee) => ipcRenderer.invoke('piu:setDefaultDeliveryFee', { fee })
 })

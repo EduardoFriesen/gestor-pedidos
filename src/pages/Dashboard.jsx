@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState(null)
 
   const load = useCallback(() => {
     window.piu?.getDashboard().then(d => setData(d || null))
@@ -34,11 +35,24 @@ export default function Dashboard() {
 
   const { week, dishes, totals } = data
 
+  const categories = {}
+  for (const d of dishes) {
+    const cat = d.category || 'Sin categoría'
+    if (!categories[cat]) categories[cat] = { name: cat, count: 0, total: 0, produced: 0 }
+    categories[cat].count++
+    categories[cat].total += d.total_ordered
+    categories[cat].produced += d.total_produced
+  }
+  const categoryList = Object.values(categories).sort((a, b) => b.total - a.total)
+
   const q = search.toLowerCase()
-  const filteredDishes = dishes.filter(d =>
+  const catFiltered = selectedCategory
+    ? dishes.filter(d => (d.category || 'Sin categoría') === selectedCategory)
+    : dishes
+  const searchFiltered = catFiltered.filter(d =>
     !q || (d.name || '').toLowerCase().includes(q) || (d.category || '').toLowerCase().includes(q)
   )
-  const sortedDishes = [...filteredDishes].sort((a, b) => {
+  const sortedDishes = [...searchFiltered].sort((a, b) => {
     const aDone = a.total_ordered > 0 && a.total_produced >= a.total_ordered ? 1 : 0
     const bDone = b.total_ordered > 0 && b.total_produced >= b.total_ordered ? 1 : 0
     return aDone - bDone
@@ -81,10 +95,69 @@ export default function Dashboard() {
         />
       </div>
 
+      {categoryList.length > 0 && (
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 'var(--spacing-sm)',
+          marginBottom: 'var(--spacing-md)'
+        }}>
+          <button
+            className={`btn btn-sm ${!selectedCategory ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setSelectedCategory(null)}
+          >
+            Todas ({dishes.length})
+          </button>
+          {categoryList.map(cat => {
+            const active = selectedCategory === cat.name
+            const pct = cat.total > 0 ? Math.round((cat.produced / cat.total) * 100) : 0
+            return (
+              <button
+                key={cat.name}
+                className={`btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setSelectedCategory(active ? null : cat.name)}
+                style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
+              >
+                <span>{cat.name}</span>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'var(--bg-hover)',
+                  borderRadius: '999px',
+                  padding: '0 6px',
+                  fontSize: 'var(--font-sm)',
+                  fontWeight: 700,
+                  minWidth: '20px',
+                  height: '20px'
+                }}>
+                  {cat.count}
+                </span>
+                <div style={{
+                  width: '40px',
+                  height: '8px',
+                  background: 'var(--border)',
+                  borderRadius: '100px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${pct}%`,
+                    height: '100%',
+                    background: pct >= 100 ? 'var(--success)' : 'var(--primary)',
+                    borderRadius: '100px',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {sortedDishes.length === 0 ? (
         <div className="empty-state card">
-          <h3>{search ? 'Sin resultados' : 'No hay pedidos para esta semana'}</h3>
-          <p>{search ? 'Probá con otro término de búsqueda.' : 'Los pedidos aparecen acá cuando se registran en la sección Pedidos.'}</p>
+          <h3>{search || selectedCategory ? 'Sin resultados' : 'No hay pedidos para esta semana'}</h3>
+          <p>{search ? 'Probá con otro término de búsqueda.' : selectedCategory ? 'No hay platos en esta categoría con pedidos.' : 'Los pedidos aparecen acá cuando se registran en la sección Pedidos.'}</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
