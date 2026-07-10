@@ -4,9 +4,15 @@ export default function Dashboard() {
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState(null)
+  const [subProducts, setSubProducts] = useState([])
+  const [expandedSub, setExpandedSub] = useState(null)
+  const [allDishes, setAllDishes] = useState([])
+  const [expandedDish, setExpandedDish] = useState(null)
 
   const load = useCallback(() => {
     window.piu?.getDashboard().then(d => setData(d || null))
+    window.piu?.getSubProductQuantities().then(setSubProducts)
+    window.piu?.getDishes().then(setAllDishes)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -154,6 +160,71 @@ export default function Dashboard() {
         </div>
       )}
 
+      {subProducts.length > 0 && (
+        <div style={{
+          marginBottom: 'var(--spacing-md)',
+          padding: 'var(--spacing-sm) var(--spacing-md)',
+          background: 'var(--primary-light)',
+          borderRadius: 'var(--radius)'
+        }}>
+          <div style={{ fontSize: 'var(--font-sm)', fontWeight: 600, marginBottom: 'var(--spacing-sm)' }}>
+            📦 Sub-productos
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+            {subProducts.map(sp => (
+              <div
+                key={sp.id}
+                onClick={() => setExpandedSub(expandedSub === sp.id ? null : sp.id)}
+                style={{
+                  background: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  padding: 'var(--spacing-sm) var(--spacing-md)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontWeight: 600,
+                  fontSize: 'var(--font-body)'
+                }}>
+                  <span>{sp.total} {sp.unit} — {sp.name}</span>
+                  <span style={{
+                    fontSize: 'var(--font-sm)',
+                    color: 'var(--text-secondary)',
+                    transform: expandedSub === sp.id ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.15s'
+                  }}>▾</span>
+                </div>
+                {expandedSub === sp.id && (
+                  <div style={{
+                    marginTop: 'var(--spacing-sm)',
+                    paddingTop: 'var(--spacing-sm)',
+                    borderTop: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--spacing-xs)',
+                    fontSize: 'var(--font-sm)'
+                  }}>
+                    {sp.breakdown.map(b => (
+                      <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>{b.name}</span>
+                        <span style={{ fontWeight: 600 }}>
+                          {(b.total).toFixed(3).replace(/\.?0+$/, '')} {b.unit}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {sortedDishes.length === 0 ? (
         <div className="empty-state card">
           <h3>{search || selectedCategory ? 'Sin resultados' : 'No hay pedidos para esta semana'}</h3>
@@ -199,9 +270,14 @@ export default function Dashboard() {
                   justifyContent: 'space-between',
                   gap: 'var(--spacing-md)'
                 }}>
-                  <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                      <h3 style={{ margin: 0, fontSize: 'var(--font-lg)' }}>{dish.name}</h3>
+                      <h3
+                        style={{ margin: 0, fontSize: 'var(--font-lg)', cursor: 'pointer', userSelect: 'none' }}
+                        onClick={() => setExpandedDish(expandedDish === dish.id ? null : dish.id)}
+                      >
+                        {expandedDish === dish.id ? '▾' : '▸'} {dish.name}
+                      </h3>
                       <span className={`badge ${done ? 'badge-success' : dish.total_produced > 0 ? 'badge-warning' : dish.total_ordered > 0 ? 'badge-warning' : ''}`}
                         style={{
                           background: statusBg,
@@ -299,6 +375,47 @@ export default function Dashboard() {
                     <span>Faltan: <strong style={{ color: 'var(--accent)' }}>{remaining}</strong></span>
                   )}
                 </div>
+
+                {expandedDish === dish.id && (() => {
+                  const fullDish = allDishes.find(d => d.id === dish.id)
+                  if (!fullDish || !fullDish.ingredients || fullDish.ingredients.length === 0) return null
+                  return (
+                    <div style={{
+                      marginTop: 'var(--spacing-xs)',
+                      padding: 'var(--spacing-sm) var(--spacing-md)',
+                      background: 'var(--bg)',
+                      borderRadius: 'var(--radius)',
+                      border: '1px solid var(--border)',
+                      fontSize: 'var(--font-sm)',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
+                        Ingredientes
+                      </div>
+                      {fullDish.ingredients.map((ing, i) => (
+                        <div key={i}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-sm)' }}>
+                            <span>{ing.name}</span>
+                            <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+                              {ing.quantity} {ing.unit}
+                              {ing.subtotal > 0 && ` ($${ing.subtotal.toFixed(2)})`}
+                            </span>
+                          </div>
+                          {ing.subIngredients && ing.subIngredients.length > 0 && (
+                            <div style={{ marginLeft: 'var(--spacing-md)', marginBottom: 'var(--spacing-xs)' }}>
+                              {ing.subIngredients.map((si, j) => (
+                                <div key={j} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-xs)' }}>
+                                  <span>└ {si.name}</span>
+                                  <span>{(si.quantity * ing.quantity).toFixed(3)} {si.unit}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}

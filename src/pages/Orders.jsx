@@ -108,7 +108,7 @@ export default function Orders() {
     const data = {
       clientId: parseInt(form.clientId),
       weekId: week.id,
-      items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseInt(i.quantity) || 1 })),
+      items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseFloat(i.quantity) || 1 })),
       notes: form.notes,
       has_delivery: form.has_delivery,
       delivery_fee: Number(form.delivery_fee) || 0
@@ -142,6 +142,18 @@ export default function Orders() {
   const handleUnassemble = async (id) => {
     if (confirm('¿Desempaquetar este pedido? Volverá a estado Confirmado.')) {
       await window.piu?.unmarkOrderAssembled(id)
+      load()
+    }
+  }
+
+  const handleDeliver = async (id) => {
+    await window.piu?.markOrderDelivered(id)
+    load()
+  }
+
+  const handleUndoDeliver = async (id) => {
+    if (confirm('¿Reabrir este pedido? Volverá a estado Ensamblado.')) {
+      await window.piu?.unmarkOrderDelivered(id)
       load()
     }
   }
@@ -324,8 +336,18 @@ export default function Orders() {
                     </button>
                   )}
                   {order.status === 'assembled' && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => handleUnassemble(order.id)} aria-label="Desempaquetar">
-                      ↩ Desempaquetar
+                    <>
+                      <button className="btn btn-success btn-sm" onClick={() => handleDeliver(order.id)} aria-label="Marcar como entregado">
+                        🚚 Entregar
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleUnassemble(order.id)} aria-label="Desempaquetar">
+                        ↩ Desempaquetar
+                      </button>
+                    </>
+                  )}
+                  {order.status === 'delivered' && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleUndoDeliver(order.id)} aria-label="Reabrir pedido">
+                      ↩ Reabrir
                     </button>
                   )}
                   {(order.status === 'pending' || order.status === 'confirmed') && (
@@ -511,8 +533,8 @@ export default function Orders() {
               </div>
               <div style={{ flex: 1 }}>
                 <input
-                  type="number"
-                  min="1"
+                  type="text"
+                  inputMode="decimal"
                   value={item.quantity}
                   onChange={e => updateItem(idx, 'quantity', e.target.value)}
                   aria-label={`Cantidad plato ${idx + 1}`}
@@ -549,8 +571,8 @@ export default function Orders() {
           {form.has_delivery && (
             <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)', alignItems: 'center' }}>
               <input
-                type="number"
-                min="0"
+                type="text"
+                inputMode="decimal"
                 value={form.delivery_fee}
                 onChange={e => setForm(f => ({ ...f, delivery_fee: e.target.value }))}
                 style={{ width: '130px' }}

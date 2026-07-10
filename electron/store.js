@@ -291,6 +291,22 @@ function unmarkOrderAssembled(id) {
   return { success: true }
 }
 
+function markOrderDelivered(id) {
+  const order = data.orders.find(o => o.id === id)
+  if (!order || order.status !== 'assembled') return { success: false }
+  order.status = 'delivered'
+  save()
+  return { success: true }
+}
+
+function unmarkOrderDelivered(id) {
+  const order = data.orders.find(o => o.id === id)
+  if (!order || order.status !== 'delivered') return { success: false }
+  order.status = 'assembled'
+  save()
+  return { success: true }
+}
+
 function clientHasOrderThisWeek(clientId) {
   const week = getCurrentWeek()
   return data.orders.some(o => o.client_id === clientId && o.week_id === week.id)
@@ -336,13 +352,20 @@ function getDishes() {
     const ingredients = (d.ingredients || []).map(item => {
       const ing = data.ingredients.find(i => i.id === item.ingredientId)
       const cost = ing?.cost || 0
+      const batchYield = ing?.batchYield || 1
+      const subIngs = (ing?.subIngredients || []).map(si => {
+        const sIng = data.ingredients.find(i => i.id === si.ingredientId)
+        const perUnit = batchYield > 0 ? si.quantity / batchYield : si.quantity
+        return { ...si, quantity: perUnit, name: sIng?.name || '(eliminado)', unit: sIng?.unit || '', cost: sIng?.cost || 0 }
+      })
       return {
         ingredientId: item.ingredientId,
         quantity: item.quantity,
         name: ing?.name || '(sin ingrediente)',
         unit: ing?.unit || '',
         cost,
-        subtotal: cost * item.quantity
+        subtotal: cost * item.quantity,
+        subIngredients: subIngs.length > 0 ? subIngs : undefined
       }
     })
     const computedCost = ingredients.reduce((s, i) => s + i.subtotal, 0)
@@ -386,6 +409,40 @@ function getIngredients() {
   return [...data.ingredients].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+function getResolvedCost(ingId, depth = 0, visited = new Set()) {
+  if (depth > 10 || visited.has(ingId)) return 0
+  visited.add(ingId)
+  const ing = data.ingredients.find(i => i.id === ingId)
+  if (!ing) return 0
+  if (ing.subIngredients && ing.subIngredients.length > 0) {
+    const batchYield = ing.batchYield || 1
+    const total = ing.subIngredients.reduce((sum, si) => {
+      return sum + getResolvedCost(si.ingredientId, depth + 1, new Set(visited)) * si.quantity
+    }, 0)
+    return batchYield > 0 ? total / batchYield : total
+  }
+  return ing.cost || 0
+}
+
+function expandForShoppingList(ingId, quantity, depth = 0, visited = new Set()) {
+  const results = []
+  if (depth > 10 || visited.has(ingId)) return results
+  visited.add(ingId)
+  const ing = data.ingredients.find(i => i.id === ingId)
+  if (!ing) return results
+  if (ing.subIngredients && ing.subIngredients.length > 0) {
+    const batchYield = ing.batchYield || 1
+    for (const si of ing.subIngredients) {
+      const perUnit = batchYield > 0 ? si.quantity / batchYield : si.quantity
+      const expanded = expandForShoppingList(si.ingredientId, quantity * perUnit, depth + 1, new Set(visited))
+      results.push(...expanded)
+    }
+  } else {
+    results.push({ ingredientId: ingId, quantity })
+  }
+  return results
+}
+
 function createIngredient(ing) {
   const ingredient = {
     id: genId(),
@@ -393,11 +450,23 @@ function createIngredient(ing) {
     unit: ing.unit || 'uni',
     cost: ing.cost || 0,
     category: ing.category || '',
-    is_active: ing.is_active !== false
+    is_active: ing.is_active !== false,
+    subIngredients: ing.subIngredients || [],
+    batchYield: ing.batchYield || 1
+  }
+  if (ingredient.subIngredients.length > 0) {
+    ingredient.cost = calcCompositeCost(ingredient.subIngredients, ingredient.batchYield)
   }
   data.ingredients.push(ingredient)
   save()
   return { id: ingredient.id, success: true }
+}
+
+function calcCompositeCost(subIngs, batchYield = 1) {
+  const total = subIngs.reduce((sum, si) => {
+    return sum + getResolvedCost(si.ingredientId, 0, new Set()) * si.quantity
+  }, 0)
+  return batchYield > 0 ? total / batchYield : total
 }
 
 function updateIngredient(ing) {
@@ -408,6 +477,11 @@ function updateIngredient(ing) {
   item.cost = ing.cost || 0
   item.category = ing.category || ''
   item.is_active = ing.is_active !== false
+  item.subIngredients = ing.subIngredients || []
+  item.batchYield = ing.batchYield || 1
+  if (item.subIngredients.length > 0) {
+    item.cost = calcCompositeCost(item.subIngredients, item.batchYield)
+  }
   save()
   return { success: true }
 }
@@ -416,6 +490,14 @@ function deleteIngredient(id) {
   data.ingredients = data.ingredients.filter(i => i.id !== id)
   for (const dish of data.dishes) {
     dish.ingredients = (dish.ingredients || []).filter(i => i.ingredientId !== id)
+  }
+  for (const ing of data.ingredients) {
+    if (ing.subIngredients) {
+      ing.subIngredients = ing.subIngredients.filter(si => si.ingredientId !== id)
+      if (ing.subIngredients.length === 0) {
+        ing.cost = 0
+      }
+    }
   }
   save()
   return { success: true }
@@ -426,8 +508,7 @@ function calculateDishCost(dishId) {
   if (!dish) return 0
   const dishIngredients = typeof dish.ingredients === 'string' ? [] : (dish.ingredients || [])
   return dishIngredients.reduce((total, item) => {
-    const ing = data.ingredients.find(i => i.id === item.ingredientId)
-    return total + (ing?.cost || 0) * item.quantity
+    return total + getResolvedCost(item.ingredientId, 0, new Set()) * item.quantity
   }, 0)
 }
 
@@ -440,8 +521,7 @@ function getDishCostMap() {
   for (const dish of data.dishes) {
     const dishIngredients = typeof dish.ingredients === 'string' ? [] : (dish.ingredients || [])
     map[dish.id] = dishIngredients.reduce((total, item) => {
-      const ing = data.ingredients.find(i => i.id === item.ingredientId)
-      return total + (ing?.cost || 0) * item.quantity
+      return total + getResolvedCost(item.ingredientId, 0, new Set()) * item.quantity
     }, 0)
   }
   return map
@@ -597,17 +677,65 @@ function getIngredientsList() {
     const dishIngredients = typeof dish.ingredients === 'string' ? [] : (dish.ingredients || [])
 
     for (const item of dishIngredients) {
+      const expanded = expandForShoppingList(item.ingredientId, item.quantity, 0, new Set())
+      for (const ex of expanded) {
+        const ing = data.ingredients.find(i => i.id === ex.ingredientId)
+        if (!ing) continue
+        const key = `${ing.id}`
+        if (!agg[key]) {
+          agg[key] = { name: ing.name, unit: ing.unit, total: 0, cost: ing.cost }
+        }
+        agg[key].total += ex.quantity * wi.quantity
+      }
+    }
+  }
+
+  return Object.values(agg).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function getSubProductQuantities() {
+  const week = getCurrentWeek()
+  const weekOrders = data.orders.filter(o => o.week_id === week.id)
+  const weekOrderIds = weekOrders.map(o => o.id)
+  const weekItems = data.orderItems.filter(oi => weekOrderIds.includes(oi.order_id))
+
+  const agg = {}
+  for (const wi of weekItems) {
+    const dish = data.dishes.find(d => d.id === wi.dish_id)
+    if (!dish) continue
+    const dishIngredients = typeof dish.ingredients === 'string' ? [] : (dish.ingredients || [])
+    for (const item of dishIngredients) {
       const ing = data.ingredients.find(i => i.id === item.ingredientId)
-      if (!ing) continue
+      if (!ing || !ing.subIngredients || ing.subIngredients.length === 0) continue
       const key = `${ing.id}`
       if (!agg[key]) {
-        agg[key] = { name: ing.name, unit: ing.unit, total: 0, cost: ing.cost }
+        agg[key] = { id: ing.id, name: ing.name, unit: ing.unit, total: 0, breakdown: {} }
       }
       agg[key].total += item.quantity * wi.quantity
     }
   }
 
-  return Object.values(agg).sort((a, b) => a.name.localeCompare(b.name))
+  const result = Object.values(agg)
+  for (const sp of result) {
+    const ing = data.ingredients.find(i => i.id === sp.id)
+    if (!ing) continue
+    const batchYield = ing.batchYield || 1
+    for (const si of ing.subIngredients || []) {
+      const baseIng = data.ingredients.find(i => i.id === si.ingredientId)
+      if (!baseIng) continue
+      const perUnit = batchYield > 0 ? si.quantity / batchYield : si.quantity
+      if (!sp.breakdown[si.ingredientId]) {
+        sp.breakdown[si.ingredientId] = { name: baseIng.name, unit: baseIng.unit, total: 0 }
+      }
+      sp.breakdown[si.ingredientId].total += perUnit * sp.total
+    }
+  }
+
+  for (const sp of result) {
+    sp.breakdown = Object.values(sp.breakdown).sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  return result.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function getWeeklyTrend() {
@@ -929,6 +1057,58 @@ function getTrendsInRange(startDate, endDate) {
   }
 }
 
+function getDishTimeSeries(dishId, startDate, endDate) {
+  const orderIdSet = new Set(getOrdersInRange(startDate, endDate))
+  const periods = {}
+
+  for (const oi of data.orderItems) {
+    if (oi.dish_id !== dishId) continue
+    if (!orderIdSet.has(oi.order_id)) continue
+    const order = data.orders.find(o => o.id === oi.order_id)
+    if (!order) continue
+    const wk = data.weeks.find(w => w.id === order.week_id)
+    if (!wk) continue
+    if (!periods[wk.week_start]) periods[wk.week_start] = { orderIds: new Set(), produced: 0 }
+    periods[wk.week_start].orderIds.add(order.id)
+  }
+
+  const start = startDate ? new Date(startDate) : null
+  const end = endDate ? new Date(endDate + 'T23:59:59') : null
+  for (const pl of data.productionLog) {
+    if (pl.dish_id !== dishId) continue
+    const plDate = new Date(pl.date_produced)
+    if (start && plDate < start) continue
+    if (end && plDate > end) continue
+    const wk = data.weeks.find(w => w.week_start <= pl.date_produced && w.week_end >= pl.date_produced)
+    if (!wk) continue
+    if (!periods[wk.week_start]) periods[wk.week_start] = { orderIds: new Set(), produced: 0 }
+    periods[wk.week_start].produced += pl.quantity_produced
+  }
+
+  return Object.entries(periods)
+    .map(([k, v]) => ({ period: k, ordered: v.orderIds.size, produced: v.produced }))
+    .sort((a, b) => a.period.localeCompare(b.period))
+}
+
+function getClientTimeSeries(clientId, startDate, endDate) {
+  const orderIds = getOrdersInRange(startDate, endDate)
+  const orderSet = new Set(orderIds)
+  const periods = {}
+
+  for (const o of data.orders) {
+    if (o.client_id !== clientId) continue
+    if (!orderSet.has(o.id)) continue
+    const wk = data.weeks.find(w => w.id === o.week_id)
+    if (!wk) continue
+    if (!periods[wk.week_start]) periods[wk.week_start] = 0
+    periods[wk.week_start]++
+  }
+
+  return Object.entries(periods)
+    .map(([k, v]) => ({ period: k, orders: v }))
+    .sort((a, b) => a.period.localeCompare(b.period))
+}
+
 function getOrdersInRange(startDate, endDate) {
   if (!startDate && !endDate) return data.orders.map(o => o.id)
   const start = startDate ? new Date(startDate) : new Date(0)
@@ -965,7 +1145,7 @@ function getStatsForOrderIds(orderIds) {
     totalCost += itemCost
 
     if (!dishData[dish.id]) {
-      dishData[dish.id] = { name: dish.name, price: dish.price || 0, costPerUnit: cost, total: 0, totalCost: 0, totalRevenue: 0 }
+      dishData[dish.id] = { id: dish.id, name: dish.name, price: dish.price || 0, costPerUnit: cost, total: 0, totalCost: 0, totalRevenue: 0 }
     }
     dishData[dish.id].total += oi.quantity
     dishData[dish.id].totalCost += itemCost
@@ -1003,6 +1183,7 @@ function getStatsForOrderIds(orderIds) {
 
   const topDishes = Object.values(dishData)
     .map(d => ({
+      id: d.id,
       name: d.name, total: d.total, price: d.price,
       cost: d.costPerUnit, profit: d.price - d.costPerUnit,
       totalRevenue: d.totalRevenue, totalCost: d.totalCost,
@@ -1017,7 +1198,7 @@ function getStatsForOrderIds(orderIds) {
         if (count > maxCount) { maxCount = count; favoriteId = parseInt(did) }
       }
       const favDish = favoriteId ? data.dishes.find(d => d.id === favoriteId) : null
-      return { name: c.name, last_name: c.last_name, order_count: c.orderIds.size, total_dishes: c.total_dishes, favorite_dish: favDish?.name || null }
+      return { clientId: c.clientId, name: c.name, last_name: c.last_name, order_count: c.orderIds.size, total_dishes: c.total_dishes, favorite_dish: favDish?.name || null }
     })
     .sort((a, b) => b.order_count - a.order_count)
 
@@ -1127,12 +1308,15 @@ module.exports = {
   deleteClient,
   getAnalytics,
   getIngredientsList,
+  getSubProductQuantities,
   getWeeklyTrend,
   getWeekComparison,
   getPreviousWeeks,
   completeDishProduction,
   markOrderAssembled,
   unmarkOrderAssembled,
+  markOrderDelivered,
+  unmarkOrderDelivered,
   clientHasOrderThisWeek,
   getMonthlyTrend,
   getYearlyTrend,
@@ -1144,12 +1328,15 @@ module.exports = {
   deleteIngredient,
   getOrdersInRange,
   calculateDishCost,
+  getResolvedCost,
   getIngredientCategories,
   getDayOfWeekDistribution,
   getDishProfitability,
   getAnalyticsFiltered,
   getPeriodComparison,
   getTrendsInRange,
+  getDishTimeSeries,
+  getClientTimeSeries,
   getDefaultDeliveryFee,
   setDefaultDeliveryFee
 }

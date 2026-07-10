@@ -115,17 +115,18 @@ const INGREDIENT_CATALOG = [
   { name: 'Panceta', unit: 'kg', cost: 1500, category: 'Fiambres' },
   { name: 'Papas fritas (congeladas)', unit: 'kg', cost: 400, category: 'Congelados' },
   { name: 'Huevo duro', unit: 'uni', cost: 55, category: 'Huevos' },
+  { name: 'Masa para pizza', unit: 'uni', cost: 0, category: 'Masa' },
 ]
 
 // ============== 25 DISHES ==============
 
 const DISH_TEMPLATES = {
   Pizzas: [
-    { name: 'Muzzarella', price: 3800, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Sal', qty: 0.005 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Aceite de oliva', qty: 0.03 }] },
-    { name: 'Napolitana', price: 4200, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Tomate perita', qty: 2 }, { name: 'Ajo', qty: 3 }, { name: 'Aceite de oliva', qty: 0.03 }] },
-    { name: 'Fugazzeta', price: 4500, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.25 }, { name: 'Cebolla', qty: 2 }, { name: 'Aceite de oliva', qty: 0.03 }, { name: 'Orégano', qty: 5 }] },
-    { name: 'Especial', price: 4800, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Jamón cocido', qty: 0.1 }, { name: 'Morrón', qty: 1 }, { name: 'Aceitunas verdes', qty: 0.05 }, { name: 'Huevo', qty: 1 }] },
-    { name: 'Calabresa', price: 4600, ingr: [{ name: 'Harina 0000', qty: 0.25 }, { name: 'Agua', qty: 0.15 }, { name: 'Levadura fresca', qty: 10 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Longaniza', qty: 0.15 }, { name: 'Morrón', qty: 1 }, { name: 'Aceite de oliva', qty: 0.03 }] }
+    { name: 'Muzzarella', price: 3800, ingr: [{ name: 'Masa para pizza', qty: 1 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Aceite de oliva', qty: 0.03 }] },
+    { name: 'Napolitana', price: 4200, ingr: [{ name: 'Masa para pizza', qty: 1 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Tomate perita', qty: 2 }, { name: 'Ajo', qty: 3 }, { name: 'Aceite de oliva', qty: 0.03 }] },
+    { name: 'Fugazzeta', price: 4500, ingr: [{ name: 'Masa para pizza', qty: 1 }, { name: 'Muzzarella', qty: 0.25 }, { name: 'Cebolla', qty: 2 }, { name: 'Aceite de oliva', qty: 0.03 }, { name: 'Orégano', qty: 5 }] },
+    { name: 'Especial', price: 4800, ingr: [{ name: 'Masa para pizza', qty: 1 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Jamón cocido', qty: 0.1 }, { name: 'Morrón', qty: 1 }, { name: 'Aceitunas verdes', qty: 0.05 }, { name: 'Huevo', qty: 1 }] },
+    { name: 'Calabresa', price: 4600, ingr: [{ name: 'Masa para pizza', qty: 1 }, { name: 'Muzzarella', qty: 0.2 }, { name: 'Salsa de tomate', qty: 0.1 }, { name: 'Longaniza', qty: 0.15 }, { name: 'Morrón', qty: 1 }, { name: 'Aceite de oliva', qty: 0.03 }] }
   ],
   Empanadas: [
     { name: 'Carne cortada a cuchillo', price: 3200, ingr: [{ name: 'Tapas para empanada', qty: 1 }, { name: 'Carne (cortada a cuchillo)', qty: 0.5 }, { name: 'Cebolla', qty: 2 }, { name: 'Huevo duro', qty: 3 }, { name: 'Aceitunas verdes', qty: 0.05 }, { name: 'Comino', qty: 5 }, { name: 'Pimentón', qty: 5 }, { name: 'Grasa de pella', qty: 0.05 }] },
@@ -241,7 +242,7 @@ function generateClients() {
 }
 
 function generateIngredients() {
-  return INGREDIENT_CATALOG.map((ing, i) => ({
+  const ingredients = INGREDIENT_CATALOG.map((ing, i) => ({
     id: i + 1,
     name: ing.name,
     unit: ing.unit,
@@ -249,6 +250,42 @@ function generateIngredients() {
     category: ing.category,
     is_active: true
   }))
+  const byName = {}
+  for (const ing of ingredients) byName[ing.name] = ing
+
+  const salsa = byName['Salsa de tomate']
+  if (salsa) {
+    salsa.batchYield = 2
+    salsa.subIngredients = [
+      { ingredientId: byName['Tomate perita'].id, quantity: 4 },
+      { ingredientId: byName['Ajo'].id, quantity: 2 },
+      { ingredientId: byName['Aceite de oliva'].id, quantity: 0.06 },
+      { ingredientId: byName['Sal'].id, quantity: 0.01 }
+    ]
+    const salsaTotalCost = salsa.subIngredients.reduce((s, si) => {
+      const ing = byName[Object.keys(byName).find(k => byName[k].id === si.ingredientId)]
+      return s + (ing?.cost || 0) * si.quantity
+    }, 0)
+    salsa.cost = salsa.batchYield > 0 ? salsaTotalCost / salsa.batchYield : salsaTotalCost
+  }
+
+  const masa = byName['Masa para pizza']
+  if (masa) {
+    masa.batchYield = 3
+    masa.subIngredients = [
+      { ingredientId: byName['Harina 0000'].id, quantity: 0.75 },
+      { ingredientId: byName['Agua'].id, quantity: 0.45 },
+      { ingredientId: byName['Levadura fresca'].id, quantity: 30 },
+      { ingredientId: byName['Sal'].id, quantity: 0.015 }
+    ]
+    const masaTotalCost = masa.subIngredients.reduce((s, si) => {
+      const ing = byName[Object.keys(byName).find(k => byName[k].id === si.ingredientId)]
+      return s + (ing?.cost || 0) * si.quantity
+    }, 0)
+    masa.cost = masa.batchYield > 0 ? masaTotalCost / masa.batchYield : masaTotalCost
+  }
+
+  return ingredients
 }
 
 function generateDishes(ingredients) {

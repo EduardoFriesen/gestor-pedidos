@@ -431,11 +431,12 @@ function testDeliverySettingsPersistence(store) {
 }
 
 function testMarkAssembleStateMachine(store, { weekId, dishIds, clientIds }) {
-  console.log('\n🟡 TEST: Mark assembled state machine')
+  console.log('\n🟡 TEST: Mark assembled/delivered state machine')
   const r = store.createOrder({
     clientId: clientIds[0], weekId,
     items: [{ dishId: dishIds['Muzzarella'], quantity: 1 }]
   })
+
   store.markOrderAssembled(r.id)
   const order1 = store.getOrderWithDetails(r.id)
   assert(order1 && order1.status === 'assembled', 'Status changed to assembled', order1?.status)
@@ -452,6 +453,81 @@ function testMarkAssembleStateMachine(store, { weekId, dishIds, clientIds }) {
   store.unmarkOrderAssembled(r.id)
   const order4 = store.getOrderWithDetails(r.id)
   assert(order4 && order4.status === 'confirmed', 'Second unmark keeps confirmed', order4?.status)
+
+  store.markOrderAssembled(r.id)
+  const rDel = store.markOrderDelivered(r.id)
+  assert(rDel.success !== false, 'markOrderDelivered succeeds from assembled', JSON.stringify(rDel))
+  const order5 = store.getOrderWithDetails(r.id)
+  assert(order5 && order5.status === 'delivered', 'Status changed to delivered', order5?.status)
+
+  const rDel2 = store.markOrderDelivered(r.id)
+  assert(rDel2.success === false, 'markOrderDelivered fails from delivered', JSON.stringify(rDel2))
+
+  const rUndo = store.unmarkOrderDelivered(r.id)
+  assert(rUndo.success !== false, 'unmarkOrderDelivered succeeds from delivered', JSON.stringify(rUndo))
+  const order6 = store.getOrderWithDetails(r.id)
+  assert(order6 && order6.status === 'assembled', 'Undo delivered sets assembled', order6?.status)
+
+  const rFail = store.markOrderDelivered(99999)
+  assert(rFail.success === false, 'markOrderDelivered fails for non-existent order', JSON.stringify(rFail))
+}
+
+function testCompositeIngredient(store) {
+  console.log('\n🟠 TEST: Composite ingredient cost calculation')
+  const base = store.createIngredient({ name: 'BaseTest', unit: 'kg', cost: 100, category: 'Test' })
+  const comp = store.createIngredient({
+    name: 'CompositeTest', unit: 'l', cost: 0, category: 'Test',
+    subIngredients: [{ ingredientId: base.id, quantity: 0.5 }]
+  })
+  const resolved = store.getResolvedCost(comp.id)
+  assert(Math.abs(resolved - 50) < 0.001, 'Composite cost = 0.5 * 100 = 50', `got ${resolved}`)
+  const dishR = store.createDish({ name: 'CompDish', category: 'Test', price: 200, ingredients: [{ ingredientId: comp.id, quantity: 2 }] })
+  const dishCost = store.calculateDishCost(dishR.id)
+  assert(Math.abs(dishCost - 100) < 0.001, 'Dish cost with composite = 2 * 50 = 100', `got ${dishCost}`)
+  store.deleteIngredient(base.id)
+  const dishCostAfter = store.calculateDishCost(dishR.id)
+  assert(dishCostAfter === 0, 'Dish cost recalculates to 0 when composite subIngredients are cleaned up', `got ${dishCostAfter}`)
+}
+
+function testCompositeShoppingList(store, { dishIds }) {
+  console.log('\n🟠 TEST: Shopping list explodes composite ingredients')
+  const list = store.getIngredientsList()
+  const masaEntry = list.find(i => i.name === 'Masa para pizza')
+  assert(!masaEntry, 'Masa para pizza NOT in shopping list (exploded)', masaEntry ? `found ${masaEntry.total}` : '')
+  const harinaEntry = list.find(i => i.name === 'Harina 0000')
+  assert(harinaEntry && harinaEntry.total > 0, 'Harina 0000 IS in shopping list from exploded masa', harinaEntry ? `total=${harinaEntry.total}` : 'not found')
+}
+
+function testCircularComposite(store) {
+  console.log('\n🟠 TEST: Circular composite references')
+  const a = store.createIngredient({ name: 'CircA', unit: 'kg', cost: 10, category: 'Test' })
+  const b = store.createIngredient({ name: 'CircB', unit: 'kg', cost: 20, category: 'Test',
+    subIngredients: [{ ingredientId: a.id, quantity: 1 }]
+  })
+  store.updateIngredient({ id: a.id, name: 'CircA', unit: 'kg', cost: 10, category: 'Test',
+    subIngredients: [{ ingredientId: b.id, quantity: 1 }]
+  })
+  const costA = store.getResolvedCost(a.id)
+  assert(costA === 0, 'Circular composite returns 0 cost (no crash)', `got ${costA}`)
+}
+
+function testCompositeShoppingListLocal(store, { weekId }) {
+  console.log('\n🟠 TEST: Shopping list explodes composite ingredients')
+  const base = store.createIngredient({ name: 'ShopBase', unit: 'kg', cost: 100, category: 'Test' })
+  const comp = store.createIngredient({ name: 'ShopComp', unit: 'l', cost: 0, category: 'Test',
+    subIngredients: [{ ingredientId: base.id, quantity: 0.5 }]
+  })
+  const dish = store.createDish({ name: 'ShopDish', category: 'Test', price: 200,
+    ingredients: [{ ingredientId: comp.id, quantity: 2 }]
+  })
+  const c = store.getClients()
+  store.createOrder({ clientId: c[0].id, weekId, items: [{ dishId: dish.id, quantity: 3 }] })
+  const list = store.getIngredientsList()
+  const compEntry = list.find(i => i.name === 'ShopComp')
+  assert(!compEntry, 'Composite NOT in shopping list (exploded)', compEntry ? `found total=${compEntry.total}` : '')
+  const baseEntry = list.find(i => i.name === 'ShopBase')
+  assert(baseEntry && baseEntry.total > 0, 'Base ingredient IS in shopping list', baseEntry ? `total=${baseEntry.total}` : 'not found')
+  assert(baseEntry && Math.abs(baseEntry.total - 3) < 0.01, 'Base qty = 3 (3 orders * 2 dish * 0.5 base qty)', `total=${baseEntry?.total}`)
 }
 
 function testStringWhitespaceClient(store, { weekId }) {
@@ -519,6 +595,9 @@ function main() {
   testStringWhitespaceClient(store, seed)
   testCompleteDishOverProduction(store, seed)
   testClientHasOrderThisWeek(store, seed)
+  testCompositeIngredient(store)
+  testCompositeShoppingListLocal(store, seed)
+  testCircularComposite(store)
 
   testOrphanedClientDelete(store, seed)
   testOrphanedIngredientDelete(store, seed)

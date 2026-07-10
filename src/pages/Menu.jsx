@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import Modal from '../components/Modal'
+import { getCompatibleUnits, convertValue } from '../utils/units'
 
 export default function Menu() {
   const [dishes, setDishes] = useState([])
@@ -9,7 +10,7 @@ export default function Menu() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({
     name: '', category: '', price: '',
-    ingredientRows: [{ ingredientId: null, quantity: 0 }],
+    ingredientRows: [{ ingredientId: null, quantity: 0, displayUnit: null }],
     is_active: true
   })
 
@@ -22,15 +23,18 @@ export default function Menu() {
 
   const openNew = () => {
     setEditing(null)
-    setForm({ name: '', category: '', price: '', ingredientRows: [{ ingredientId: null, quantity: 0 }], is_active: true })
+    setForm({ name: '', category: '', price: '', ingredientRows: [{ ingredientId: null, quantity: 0, displayUnit: null }], is_active: true })
     setShowModal(true)
   }
 
   const openEdit = (dish) => {
     setEditing(dish)
     const rows = (dish.ingredients || []).length > 0
-      ? dish.ingredients.map(i => ({ ingredientId: i.ingredientId, quantity: i.quantity }))
-      : [{ ingredientId: null, quantity: 0 }]
+      ? dish.ingredients.map(i => {
+          const ing = allIngredients.find(x => x.id === i.ingredientId)
+          return { ingredientId: i.ingredientId, quantity: i.quantity, displayUnit: ing?.unit || null }
+        })
+      : [{ ingredientId: null, quantity: 0, displayUnit: null }]
     setForm({
       name: dish.name,
       category: dish.category || '',
@@ -42,7 +46,7 @@ export default function Menu() {
   }
 
   const addRow = () => {
-    setForm(f => ({ ...f, ingredientRows: [...f.ingredientRows, { ingredientId: null, quantity: 0 }] }))
+    setForm(f => ({ ...f, ingredientRows: [...f.ingredientRows, { ingredientId: null, quantity: 0, displayUnit: null }] }))
   }
 
   const removeRow = (index) => {
@@ -55,7 +59,12 @@ export default function Menu() {
   const updateRow = (index, field, value) => {
     setForm(f => {
       const rows = [...f.ingredientRows]
-      rows[index] = { ...rows[index], [field]: value }
+      if (field === 'ingredientId') {
+        const ing = allIngredients.find(i => i.id === value)
+        rows[index] = { ingredientId: value, quantity: rows[index].quantity, displayUnit: ing?.unit || null }
+      } else {
+        rows[index] = { ...rows[index], [field]: value }
+      }
       return { ...f, ingredientRows: rows }
     })
   }
@@ -65,10 +74,14 @@ export default function Menu() {
   }
 
   const calcRowSubtotal = (row) => {
-    if (!row.ingredientId || !row.quantity) return 0
+    const qty = parseFloat(row.quantity) || 0
+    if (!row.ingredientId || !qty) return 0
     const ing = getIngredientInfo(row.ingredientId)
     if (!ing) return 0
-    return ing.cost * row.quantity
+    const qtyInIngUnit = row.displayUnit
+      ? convertValue(qty, row.displayUnit, ing.unit)
+      : qty
+    return ing.cost * qtyInIngUnit
   }
 
   const totalCost = form.ingredientRows.reduce((s, r) => s + calcRowSubtotal(r), 0)
@@ -81,7 +94,16 @@ export default function Menu() {
       name: form.name.trim(),
       category: form.category,
       price: parseFloat(form.price) || 0,
-      ingredients: form.ingredientRows.filter(r => r.ingredientId && r.quantity > 0),
+      ingredients: form.ingredientRows
+        .filter(r => r.ingredientId && parseFloat(r.quantity || '0') > 0)
+        .map(r => {
+          const ing = getIngredientInfo(r.ingredientId)
+          const rawQty = parseFloat(r.quantity) || 0
+          const qty = r.displayUnit && ing
+            ? convertValue(rawQty, r.displayUnit, ing.unit)
+            : rawQty
+          return { ingredientId: r.ingredientId, quantity: qty }
+        }),
       is_active: form.is_active
     }
     if (editing) {
@@ -200,9 +222,20 @@ export default function Menu() {
                     <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Ingredientes ({dish.ingredients.length})</summary>
                     <div style={{ marginTop: 'var(--spacing-xs)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       {dish.ingredients.map((ing, i) => (
-                        <span key={i} style={{ fontSize: 'var(--font-sm)' }}>
-                          {ing.name && `${ing.name}: `}{ing.quantity} {ing.unit}{ing.subtotal > 0 ? ` ($${ing.subtotal.toFixed(2)})` : ''}
-                        </span>
+                        <div key={i}>
+                          <span style={{ fontSize: 'var(--font-sm)' }}>
+                            {ing.name && `${ing.name}: `}{ing.quantity} {ing.unit}{ing.subtotal > 0 ? ` ($${ing.subtotal.toFixed(2)})` : ''}
+                          </span>
+                          {ing.subIngredients && ing.subIngredients.length > 0 && (
+                            <div style={{ marginLeft: 'var(--spacing-md)', display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '1px' }}>
+                              {ing.subIngredients.map((si, j) => (
+                                <span key={j} style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                                  └ {si.name}: {(si.quantity * ing.quantity).toFixed(3)} {si.unit} (${(si.cost * si.quantity * ing.quantity).toFixed(2)})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </details>
@@ -246,14 +279,13 @@ export default function Menu() {
           </div>
           <div className="form-group">
             <label>Precio ($)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.price}
-              onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
-              placeholder="0.00"
-            />
+              <input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.price}
+                  onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                  placeholder="0.00"
+                />
           </div>
         </div>
 
@@ -304,18 +336,23 @@ export default function Menu() {
                   {index === 0 && <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Cantidad</label>}
                   <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={row.quantity || ''}
-                      onChange={e => updateRow(index, 'quantity', parseFloat(e.target.value) || 0)}
+                      type="text"
+                      inputMode="decimal"
+                      value={row.quantity ?? ''}
+                      onChange={e => updateRow(index, 'quantity', e.target.value)}
                       placeholder="0"
                       style={{ flex: 1 }}
                     />
                     {ingInfo && (
-                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', minWidth: '30px' }}>
-                        {ingInfo.unit}
-                      </span>
+                      <select
+                        value={row.displayUnit || ingInfo.unit}
+                        onChange={e => updateRow(index, 'displayUnit', e.target.value)}
+                        style={{ fontSize: 'var(--font-body)', width: '90px' }}
+                      >
+                        {getCompatibleUnits(ingInfo.unit).map(u => (
+                          <option key={u} value={u}>{u}</option>
+                        ))}
+                      </select>
                     )}
                   </div>
                 </div>
