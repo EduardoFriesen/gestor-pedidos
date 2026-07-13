@@ -2,11 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react'
 import Modal from '../components/Modal'
 import PdfViewer from '../components/PdfViewer'
 import { generarEtiquetasDelivery } from '../utils/pdf'
+import { SkeletonOrderRow } from '../components/Skeleton'
+import ErrorBanner from '../components/ErrorBanner'
+import { useToast } from '../components/ToastProvider'
 
 export default function Orders() {
+  const showToast = useToast()
   const [orders, setOrders] = useState([])
   const [dishes, setDishes] = useState([])
   const [clients, setClients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [week, setWeek] = useState(null)
@@ -22,26 +28,41 @@ export default function Orders() {
   const [showNewClientModal, setShowNewClientModal] = useState(false)
   const [newClientForm, setNewClientForm] = useState({ name: '', last_name: '', phone: '', address: '', notes: '' })
   const [showClientDropdown, setShowClientDropdown] = useState(false)
+  const [orderCounts, setOrderCounts] = useState(null)
+  const [selectedWeekId, setSelectedWeekId] = useState(null)
+  const [previousWeeks, setPreviousWeeks] = useState([])
+  const [weekOrders, setWeekOrders] = useState([])
 
   const load = useCallback(() => {
+    setLoading(true)
     Promise.all([
       (window.piu?.getOrders() || Promise.resolve([])).catch(() => []),
       (window.piu?.getDishes() || Promise.resolve([])).catch(() => []),
       (window.piu?.getClients() || Promise.resolve([])).catch(() => []),
       (window.piu?.getCurrentWeek() || Promise.resolve(null)).catch(() => null),
       (window.piu?.isOrdersOpen() || Promise.resolve(true)).catch(() => true),
-      (window.piu?.getDefaultDeliveryFee() || Promise.resolve(500)).catch(() => 500)
-    ]).then(([o, d, c, w, isOpen, fee]) => {
+      (window.piu?.getDefaultDeliveryFee() || Promise.resolve(500)).catch(() => 500),
+      (window.piu?.getPreviousWeeks() || Promise.resolve([])).catch(() => [])
+    ]).then(([o, d, c, w, isOpen, fee, pw]) => {
       setOrders(o || [])
       setDishes((d || []).filter(d => d && d.is_active))
       setClients(c || [])
       setWeek(w)
       setOrdersOpen(isOpen)
       if (fee !== undefined) setDefaultDeliveryFee(fee)
+      setPreviousWeeks(pw || [])
+      setLoading(false)
     })
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const loadCounts = () => window.piu?.getWeekOrderCounts().then(setOrderCounts)
+    loadCounts()
+    window.addEventListener('piu:production-update', loadCounts)
+    return () => window.removeEventListener('piu:production-update', loadCounts)
+  }, [])
 
   useEffect(() => {
     if (!showModal) {
@@ -50,6 +71,23 @@ export default function Orders() {
       setShowNewClientModal(false)
     }
   }, [showModal])
+
+  const handleWeekSelect = async (e) => {
+    const weekId = e.target.value ? parseInt(e.target.value, 10) : null
+    setSelectedWeekId(weekId)
+    if (weekId) {
+      try {
+        const wo = await window.piu?.getOrdersByWeekId(weekId)
+        setWeekOrders(wo || [])
+      } catch {
+        setWeekOrders([])
+      }
+    } else {
+      setWeekOrders([])
+    }
+  }
+
+  const isHistorical = selectedWeekId !== null
 
   const handleCloseModal = useCallback(() => setShowModal(false), [])
 
@@ -105,56 +143,84 @@ export default function Orders() {
 
   const handleSave = async () => {
     if (!form.clientId || form.items.length === 0 || !form.items[0].dishId) return
-    const data = {
-      clientId: parseInt(form.clientId),
-      weekId: week.id,
-      items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseFloat(i.quantity) || 1 })),
-      notes: form.notes,
-      has_delivery: form.has_delivery,
-      delivery_fee: Number(form.delivery_fee) || 0
+    try {
+      const data = {
+        clientId: parseInt(form.clientId),
+        weekId: week.id,
+        items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseFloat(i.quantity) || 1 })),
+        notes: form.notes,
+        has_delivery: form.has_delivery,
+        delivery_fee: Number(form.delivery_fee) || 0
+      }
+      if (!editing && (await window.piu?.clientHasOrderThisWeek(parseInt(form.clientId)))) {
+        const c = clients.find(x => x.id === parseInt(form.clientId))
+        const name = c ? `${c.name} ${c.last_name}` : 'El cliente'
+        const ok = window.confirm(`${name} ya tiene un pedido esta semana.\n\n¿Crear un segundo pedido?`)
+        if (!ok) return
+      }
+      if (editing) {
+        await window.piu?.updateOrder({ id: editing.id, ...data })
+      } else {
+        await window.piu?.createOrder(data)
+      }
+      setShowModal(false)
+      load()
+      showToast('Pedido guardado', 'success')
+    } catch (e) {
+      setError('No se pudo guardar el pedido.')
     }
-    if (!editing && (await window.piu?.clientHasOrderThisWeek(parseInt(form.clientId)))) {
-      const c = clients.find(x => x.id === parseInt(form.clientId))
-      const name = c ? `${c.name} ${c.last_name}` : 'el cliente'
-      if (!confirm(`⚠️ ${name} ya tiene un pedido esta semana. ¿Crear de todas formas?`)) return
-    }
-    if (editing) {
-      await window.piu?.updateOrder({ id: editing.id, ...data })
-    } else {
-      await window.piu?.createOrder(data)
-    }
-    setShowModal(false)
-    load()
   }
 
   const handleDelete = async (id) => {
-    if (confirm('¿Eliminar este pedido?')) {
+    if (!confirm('¿Eliminar este pedido?')) return
+    try {
       await window.piu?.deleteOrder(id)
       load()
+      showToast('Pedido eliminado', 'success')
+    } catch (e) {
+      setError('No se pudo eliminar el pedido.')
     }
   }
 
   const handleAssemble = async (id) => {
-    await window.piu?.markOrderAssembled(id)
-    load()
+    try {
+      await window.piu?.markOrderAssembled(id)
+      load()
+      showToast('Pedido ensamblado', 'success')
+    } catch (e) {
+      setError('No se pudo ensamblar el pedido.')
+    }
   }
 
   const handleUnassemble = async (id) => {
-    if (confirm('¿Desempaquetar este pedido? Volverá a estado Confirmado.')) {
+    if (!confirm('¿Desempaquetar este pedido? Volverá a estado Confirmado.')) return
+    try {
       await window.piu?.unmarkOrderAssembled(id)
       load()
+      showToast('Pedido desempaquetado', 'success')
+    } catch (e) {
+      setError('No se pudo desempaquetar el pedido.')
     }
   }
 
   const handleDeliver = async (id) => {
-    await window.piu?.markOrderDelivered(id)
-    load()
+    try {
+      await window.piu?.markOrderDelivered(id)
+      load()
+      showToast('Pedido entregado', 'success')
+    } catch (e) {
+      setError('No se pudo marcar como entregado.')
+    }
   }
 
   const handleUndoDeliver = async (id) => {
-    if (confirm('¿Reabrir este pedido? Volverá a estado Ensamblado.')) {
+    if (!confirm('¿Reabrir este pedido? Volverá a estado Ensamblado.')) return
+    try {
       await window.piu?.unmarkOrderDelivered(id)
       load()
+      showToast('Pedido reabierto', 'success')
+    } catch (e) {
+      setError('No se pudo reabrir el pedido.')
     }
   }
 
@@ -162,7 +228,7 @@ export default function Orders() {
     const weekData = await window.piu?.getCurrentWeek()
     const allOrders = await window.piu?.getOrdersByWeekId(weekData.id)
     if (!allOrders || allOrders.length === 0) {
-      alert('No hay pedidos para esta semana.')
+      showToast('No hay pedidos para esta semana.', 'info')
       return
     }
     const doc = generarEtiquetasDelivery(allOrders)
@@ -183,7 +249,7 @@ export default function Orders() {
       if (field === 'dishId' && value) {
         const alreadyExists = items.some((item, i) => i !== idx && item.dishId === value)
         if (alreadyExists) {
-          alert('Ese plato ya está cargado en este pedido. Si querés más cantidad, aumentá la cantidad del existente.')
+          showToast('Ese plato ya está cargado. Aumentá la cantidad del existente.', 'info')
           return f
         }
       }
@@ -201,7 +267,8 @@ export default function Orders() {
   }
 
   const oq = orderSearch.toLowerCase()
-  const filteredOrders = (orders || []).filter(o => {
+  const sourceOrders = isHistorical ? weekOrders : orders
+  const filteredOrders = (sourceOrders || []).filter(o => {
     if (oq && !(o.client_name || '').toLowerCase().includes(oq) &&
         !(o.items || []).some(i => (i.dish_name || '').toLowerCase().includes(oq))) return false
     if (showUnpackedOnly && o.status === 'assembled') return false
@@ -223,23 +290,31 @@ export default function Orders() {
 
   const cq = clientSearch.toLowerCase()
   const filteredClientOptions = (clients || []).filter(c =>
-    !cq || (c.name || '').toLowerCase().includes(cq) || (c.last_name || '').toLowerCase().includes(cq)
+    !cq || (c.name || '').toLowerCase().includes(cq)
+      || (c.last_name || '').toLowerCase().includes(cq)
+      || (c.phone || '').toLowerCase().includes(cq)
+      || (c.address || '').toLowerCase().includes(cq)
+      || (c.notes || '').toLowerCase().includes(cq)
   )
 
   const handleNewClientSave = async () => {
     if (!newClientForm.name.trim()) return
-    const data = {
-      name: newClientForm.name.trim(),
-      last_name: newClientForm.last_name.trim(),
-      phone: newClientForm.phone.trim(),
-      address: newClientForm.address.trim(),
-      notes: newClientForm.notes.trim()
-    }
-    const result = await window.piu?.createClient(data)
-    if (result?.success) {
-      const updatedClients = await window.piu?.getClients()
-      setClients(updatedClients || [])
-      setForm(f => ({ ...f, clientId: result.id }))
+    try {
+      const data = {
+        name: newClientForm.name.trim(),
+        last_name: newClientForm.last_name.trim(),
+        phone: newClientForm.phone.trim(),
+        address: newClientForm.address.trim(),
+        notes: newClientForm.notes.trim()
+      }
+      const result = await window.piu?.createClient(data)
+      if (result?.success) {
+        const updatedClients = await window.piu?.getClients()
+        setClients(updatedClients || [])
+        setForm(f => ({ ...f, clientId: result.id }))
+      }
+    } catch (e) {
+      setError('No se pudo crear el cliente.')
     }
     setShowNewClientModal(false)
     setNewClientForm({ name: '', last_name: '', phone: '', address: '', notes: '' })
@@ -253,18 +328,42 @@ export default function Orders() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 'var(--spacing-lg)'
+        marginBottom: 'var(--spacing-lg)',
+        gap: 'var(--spacing-md)',
+        flexWrap: 'wrap'
       }}>
-        <h2>Pedidos</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+          <h2 style={{ margin: 0 }}>Pedidos</h2>
+          <select
+            value={selectedWeekId ?? ''}
+            onChange={handleWeekSelect}
+            style={{ maxWidth: '280px', fontSize: 'var(--font-body)' }}
+            aria-label="Seleccionar semana"
+          >
+            <option value="">Semana actual</option>
+            {previousWeeks.map(w => (
+              <option key={w.id} value={w.id}>
+                {w.week_start} — {w.week_end}
+              </option>
+            ))}
+          </select>
+          {isHistorical && (
+            <span className="badge badge-warning" style={{ fontSize: 'var(--font-sm)' }}>
+              Solo lectura
+            </span>
+          )}
+        </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-          <button className="btn btn-outline" onClick={handlePrintLabelsView}>
-            🏷️ Etiquetas
+          <button className="btn btn-outline btn-sm" onClick={handlePrintLabelsView} disabled={isHistorical}>
+            Etiquetas
           </button>
-          <button className="btn btn-primary btn-lg" onClick={openNew}>
-            + Nuevo Pedido
+          <button className="btn btn-primary" onClick={openNew} disabled={isHistorical} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
+            + Pedido
           </button>
         </div>
       </div>
+
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
       <WeekSelector
         open={showWeekSelector}
@@ -272,6 +371,28 @@ export default function Orders() {
         currentStart={alternateWeek?.current}
         nextStart={alternateWeek?.next}
       />
+
+      {!isHistorical && orderCounts && (
+        <div style={{
+          display: 'flex',
+          gap: 'var(--spacing-md)',
+          marginBottom: 'var(--spacing-md)',
+          flexWrap: 'wrap'
+        }}>
+          <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)', borderColor: (orderCounts.pending + orderCounts.confirmed) > 0 ? 'var(--accent)' : undefined }}>
+            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>Faltantes</p>
+            <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--accent)' }}>{orderCounts.pending + orderCounts.confirmed}</p>
+          </div>
+          <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--warning)' }}>Armados</p>
+            <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--warning)' }}>{orderCounts.assembled}</p>
+          </div>
+          <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--success)' }}>Enviados</p>
+            <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>{orderCounts.delivered}</p>
+          </div>
+        </div>
+      )}
 
       <div style={{
         display: 'flex',
@@ -289,7 +410,7 @@ export default function Orders() {
           aria-label="Buscar pedido"
           style={{ flex: '1', minWidth: '200px', maxWidth: '400px' }}
         />
-        <label style={{
+        {!isHistorical && <label style={{
           display: 'flex',
           alignItems: 'center',
           gap: 'var(--spacing-xs)',
@@ -304,15 +425,23 @@ export default function Orders() {
             style={{ width: '24px', height: '24px' }}
           />
           Solo sin empaquetar
-        </label>
+        </label>}
       </div>
 
-      {sortedOrders.length === 0 ? (
-        <div className="empty-state card">
-          <h3>{orderSearch || showUnpackedOnly ? 'Sin resultados' : 'No hay pedidos esta semana'}</h3>
-          <p>{orderSearch || showUnpackedOnly ? 'Probá con otros filtros.' : 'Presioná + Nuevo Pedido para empezar.'}</p>
+      {loading && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+          {[1,2,3,4,5].map(i => <SkeletonOrderRow key={i} />)}
         </div>
-      ) : (
+      )}
+
+      {!loading && sortedOrders.length === 0 && (
+        <div className="empty-state card">
+          <h3>{orderSearch || showUnpackedOnly ? 'Sin resultados' : isHistorical ? 'No hay pedidos en esta semana' : 'No hay pedidos esta semana'}</h3>
+          <p>{orderSearch || showUnpackedOnly ? 'Probá con otros filtros.' : isHistorical ? 'Seleccioná otra semana para ver sus pedidos.' : 'Usá el botón "+ Nuevo Pedido" para registrar el primer pedido de la semana.'}</p>
+        </div>
+      )}
+
+      {!loading && sortedOrders.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
           {sortedOrders.map(order => (
             <div key={order.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
@@ -322,7 +451,7 @@ export default function Orders() {
                     {order.client_name}
                   </h3>
                   <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                    {order.client_phone && `📞 ${order.client_phone}`}
+                    {order.client_phone && `${order.client_phone}`}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center' }}>
@@ -330,33 +459,33 @@ export default function Orders() {
                     style={{ fontSize: 'var(--font-sm)' }}>
                     {order.status === 'pending' ? 'Pendiente' : order.status === 'confirmed' ? 'Confirmado' : order.status === 'assembled' ? 'Ensamblado' : 'Entregado'}
                   </span>
-                  {(order.status === 'pending' || order.status === 'confirmed') && (
-                    <button className="btn btn-success btn-sm" onClick={() => handleAssemble(order.id)} aria-label="Marcar como ensamblado">
-                      📦
+                  {!isHistorical && (order.status === 'pending' || order.status === 'confirmed') && (
+                    <button className="btn btn-sm btn-status-assemble" onClick={() => handleAssemble(order.id)} aria-label="Marcar como ensamblado">
+                      Ensamblar
                     </button>
                   )}
-                  {order.status === 'assembled' && (
+                  {!isHistorical && order.status === 'assembled' && (
                     <>
-                      <button className="btn btn-success btn-sm" onClick={() => handleDeliver(order.id)} aria-label="Marcar como entregado">
-                        🚚 Entregar
+                      <button className="btn btn-sm btn-status-deliver" onClick={() => handleDeliver(order.id)} aria-label="Marcar como entregado">
+                        Entregar
                       </button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => handleUnassemble(order.id)} aria-label="Desempaquetar">
-                        ↩ Desempaquetar
+                      <button className="btn btn-sm btn-status-undo" onClick={() => handleUnassemble(order.id)} aria-label="Desempaquetar">
+                        Desempaquetar
                       </button>
                     </>
                   )}
-                  {order.status === 'delivered' && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => handleUndoDeliver(order.id)} aria-label="Reabrir pedido">
-                      ↩ Reabrir
+                  {!isHistorical && order.status === 'delivered' && (
+                    <button className="btn btn-sm btn-status-reopen" onClick={() => handleUndoDeliver(order.id)} aria-label="Reabrir pedido">
+                      Reabrir
                     </button>
                   )}
-                  {(order.status === 'pending' || order.status === 'confirmed') && (
+                  {!isHistorical && (order.status === 'pending' || order.status === 'confirmed') && (
                     <>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openEdit(order)} aria-label="Editar pedido">
-                        ✏️
+                      <button className="btn btn-sm btn-icon-edit" onClick={() => openEdit(order)} aria-label="Editar pedido">
+                        Editar
                       </button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(order.id)} aria-label="Eliminar pedido">
-                        🗑️
+                      <button className="btn btn-sm btn-icon-delete" onClick={() => handleDelete(order.id)} aria-label="Eliminar pedido">
+                        Eliminar
                       </button>
                     </>
                   )}
@@ -382,13 +511,13 @@ export default function Orders() {
                     fontSize: 'var(--font-body)',
                     fontWeight: 700
                   }}>
-                    Envío $${order.delivery_fee || 0}
+                    Envío ${order.delivery_fee || 0}
                   </span>
                 )}
               </div>
               {order.notes && (
                 <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                  📝 {order.notes}
+                  {order.notes}
                 </p>
               )}
             </div>
@@ -438,29 +567,25 @@ export default function Orders() {
                   setShowClientDropdown(true)
                 }}
                 onFocus={() => setShowClientDropdown(true)}
+                onBlur={() => setTimeout(() => setShowClientDropdown(false), 200)}
                 aria-label="Buscar cliente"
               />
               {showClientDropdown && (
-                <>
-                  <div style={{
-                    position: 'fixed',
-                    inset: 0,
-                    zIndex: 45,
-                    background: 'transparent'
-                  }} onClick={() => setShowClientDropdown(false)} />
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    right: 0,
-                    background: 'var(--bg)',
-                    border: '2px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    maxHeight: '300px',
-                    overflowY: 'auto',
-                    zIndex: 50,
-                    marginTop: '4px'
-                  }}>
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'var(--bg)',
+                  border: '2px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  maxHeight: '300px',
+                  overflowY: 'auto',
+                  zIndex: 50,
+                  marginTop: '4px'
+                }}
+                onMouseDown={e => e.preventDefault()}
+                >
                   {filteredClientOptions.length === 0 ? (
                     <div style={{ padding: 'var(--spacing-sm)' }}>
                       <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-sm)' }}>
@@ -473,8 +598,9 @@ export default function Orders() {
                           setShowNewClientModal(true)
                           setShowClientDropdown(false)
                         }}
+                        style={{ width: '220px', fontSize: 'var(--font-body)' }}
                       >
-                        + Nuevo Cliente
+                        + Cliente
                       </button>
                     </div>
                   ) : (
@@ -505,8 +631,7 @@ export default function Orders() {
                       </button>
                     ))
                   )}
-                  </div>
-                </>
+                   </div>
               )}
             </>
           )}
@@ -515,7 +640,7 @@ export default function Orders() {
         <div className="form-group">
           <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Platos</span>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={addItem}>+ Agregar plato</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={addItem}>+ Agregar plato</button>
           </label>
           {form.items.map((item, idx) => (
             <div key={idx} className="form-row" style={{ marginBottom: 'var(--spacing-xs)', alignItems: 'end' }}>
@@ -558,14 +683,14 @@ export default function Orders() {
               className={`btn btn-sm ${!form.has_delivery ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setForm(f => ({ ...f, has_delivery: false }))}
             >
-              🚚 No
+              No
             </button>
             <button
               type="button"
               className={`btn btn-sm ${form.has_delivery ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setForm(f => ({ ...f, has_delivery: true }))}
             >
-              🚚 Sí
+              Sí
             </button>
           </div>
           {form.has_delivery && (
@@ -584,13 +709,14 @@ export default function Orders() {
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  window.piu?.setDefaultDeliveryFee(Number(form.delivery_fee) || 0)
-                  setDefaultDeliveryFee(Number(form.delivery_fee) || 0)
-                }}
+                  onClick={async () => {
+                    await window.piu?.setDefaultDeliveryFee(Number(form.delivery_fee) || 0)
+                    setDefaultDeliveryFee(Number(form.delivery_fee) || 0)
+                    showToast('Valor por defecto guardado', 'success')
+                  }}
                 title="Guardar este monto como valor por defecto"
               >
-                💾
+                Guardar
               </button>
             </div>
           )}
@@ -687,7 +813,7 @@ function WeekSelector({ open, onChoice, currentStart, nextStart }) {
     <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onChoice('cancel') }}>
       <div className="modal-content" style={{ maxWidth: '500px' }}>
         <div className="modal-header">
-          <h2>🕐 Fuera del horario de pedidos</h2>
+          <h2>Fuera del horario de pedidos</h2>
         </div>
         <p style={{ marginBottom: 'var(--spacing-lg)', fontSize: 'var(--font-body)' }}>
           Los pedidos se cierran los viernes a las 12:00. ¿A qué semana querés agregar este pedido?

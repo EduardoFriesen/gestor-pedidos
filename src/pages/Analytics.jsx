@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import PdfViewer from '../components/PdfViewer'
-import { generarHojaProduccion, generarListaCompras } from '../utils/pdf'
+import { SkeletonAnalytics } from '../components/Skeleton'
+import ErrorBanner from '../components/ErrorBanner'
 
 const PRESETS = [
   { id: 'week', label: 'Esta semana' },
@@ -71,16 +71,15 @@ function pctChange(n) {
   return `${val > 0 ? '+' : ''}${val.toFixed(1)}%`
 }
 
+const PIE_COLORS = ['var(--primary)', 'var(--accent)', 'var(--success)', 'var(--warning)', 'var(--danger)', '#8B7B6B', '#6A9A8B', '#7B8FA0', '#9B8B7B', '#C4885C']
+
 export default function Analytics() {
   const [analytics, setAnalytics] = useState(null)
-  const [trends, setTrends] = useState({ weekly: [], monthly: [], yearly: [] })
-  const [fullTrends, setFullTrends] = useState({ weekly: [], monthly: [], yearly: [] })
-  const [dashboard, setDashboard] = useState(null)
-  const [ingredients, setIngredients] = useState([])
+  const [trends, setTrends] = useState({ weekly: [], monthly: [], quarterly: [], yearly: [] })
+  const [fullTrends, setFullTrends] = useState({ weekly: [], monthly: [], quarterly: [], yearly: [] })
   const [comparison, setComparison] = useState(null)
-  const [pdfPreview, setPdfPreview] = useState(null)
   const [tab, setTab] = useState('top')
-  const [trendPeriod, setTrendPeriod] = useState('weekly')
+  const [trendPeriod, setTrendPeriod] = useState('monthly')
   const [filterPreset, setFilterPreset] = useState('week')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -96,32 +95,53 @@ export default function Analytics() {
   const [expandedClient, setExpandedClient] = useState(null)
   const [dishTimeSeries, setDishTimeSeries] = useState([])
   const [clientTimeSeries, setClientTimeSeries] = useState([])
+  const [dishSort, setDishSort] = useState('total')
+  const [dishSortDir, setDishSortDir] = useState('asc')
+  const [clientSort, setClientSort] = useState('orders')
+  const [clientSortDir, setClientSortDir] = useState('asc')
+  const [overproduction, setOverproduction] = useState(null)
+  const [error, setError] = useState(null)
+  const [tablePage, setTablePage] = useState(0)
+  const [dishPage, setDishPage] = useState(0)
+  const [clientPage, setClientPage] = useState(0)
+  const LIST_PAGE_SIZE = 5
 
-  const loadAll = useCallback((preset, start, end) => {
-    const { startDate, endDate } = preset === 'custom'
-      ? { startDate: start || null, endDate: end || null }
-      : getPresetRange(preset)
+  const loadAll = useCallback(async (preset, start, end) => {
+    try {
+      const { startDate, endDate } = preset === 'custom'
+        ? { startDate: start || null, endDate: end || null }
+        : getPresetRange(preset)
 
-    Promise.all([
-      window.piu?.getAnalyticsFiltered(startDate, endDate),
-      window.piu?.getTrendsInRange(startDate, endDate),
-      window.piu?.getDashboard(),
-      window.piu?.getIngredientsList()
-    ]).then(([a, t, d, i]) => {
+      const [a, t, ov] = await Promise.all([
+        window.piu?.getAnalyticsFiltered(startDate, endDate) || Promise.resolve(null),
+        window.piu?.getTrendsInRange(startDate, endDate) || Promise.resolve(null),
+        window.piu?.getOverproductionInRange(startDate, endDate) || Promise.resolve(null)
+      ])
       setAnalytics(a)
-      setTrends(t || { weekly: [], monthly: [], yearly: [] })
-      setDashboard(d)
-      setIngredients(i || [])
-    })
+      setTrends(t || { weekly: [], monthly: [], quarterly: [], yearly: [] })
+      setOverproduction(ov || null)
+      setError(null)
+    } catch (e) {
+      setError('No se pudieron cargar los datos de analytics.')
+    }
   }, [])
 
-  useEffect(() => { loadAll(filterPreset, customStart, customEnd) }, [loadAll, filterPreset, customStart, customEnd])
+  useEffect(() => { loadAll(filterPreset, customStart, customEnd) }, [loadAll, filterPreset])
 
   useEffect(() => {
-    window.piu?.getTrendsInRange(null, null).then(t => {
-      if (t) setFullTrends(t)
-    })
+    (async () => {
+      try {
+        const t = await window.piu?.getTrendsInRange(null, null)
+        if (t) setFullTrends(t)
+      } catch (e) {
+        // silent — fullTrends is auxiliary
+      }
+    })()
   }, [])
+
+  useEffect(() => { setTablePage(0) }, [trendPeriod])
+  useEffect(() => { setDishPage(0) }, [dishSort, searchDish])
+  useEffect(() => { setClientPage(0) }, [clientSort, searchClient])
 
   const handleFilterChange = (preset) => {
     setFilterPreset(preset)
@@ -134,6 +154,14 @@ export default function Analytics() {
   const handleCustomFilter = () => {
     if (customStart && customEnd) {
       loadAll('custom', customStart, customEnd)
+    }
+  }
+
+  const handleExcelExport = async () => {
+    try {
+      await window.piu?.exportAnalyticsExcel()
+    } catch (e) {
+      console.error('Excel export error:', e)
     }
   }
 
@@ -175,26 +203,11 @@ export default function Analytics() {
         quarters[key] = {
           label: key, value: key,
           startDate: `${y}-${String(sm).padStart(2, '0')}-01`,
-          endDate: `${y}-${String(em).padStart(2, '0')}-31`
+          endDate: `${y}-${String(em).padStart(2, '0')}-${new Date(y, em, 0).getDate().toString().padStart(2, '0')}`
         }
       }
     }
     return Object.values(quarters).sort((a, b) => a.value.localeCompare(b.value))
-  }
-
-  function getPreviousPeriodRange(preset) {
-    const { startDate, endDate } = getPresetRange(preset)
-    const s = new Date(startDate)
-    const e = new Date(endDate)
-    const dur = e.getTime() - s.getTime()
-    const prevS = new Date(s.getTime() - dur - 86400000)
-    const prevE = new Date(s.getTime() - 86400000)
-    return {
-      p1Start: prevS.toISOString().slice(0, 10),
-      p1End: prevE.toISOString().slice(0, 10),
-      p2Start: startDate,
-      p2End: endDate
-    }
   }
 
   const [compP1Value, setCompP1Value] = useState('')
@@ -207,7 +220,7 @@ export default function Analytics() {
       const p2s = compCustomP2Start || null
       const p2e = compCustomP2End || null
       if (p1s && p2s) {
-        window.piu?.getPeriodComparison(p1s, p1e, p2s, p2e).then(setComparison)
+        window.piu?.getPeriodComparison(p1s, p1e, p2s, p2e).then(setComparison).catch(() => setError('No se pudo generar la comparación.'))
       }
     } else {
       const opts = getPeriodOptions(filterPreset, fullTrends)
@@ -215,51 +228,43 @@ export default function Analytics() {
       const opt2 = opts.find(o => o.value === p2Val)
       if (opt1 && opt2) {
         setComparison(null)
-        window.piu?.getPeriodComparison(opt1.startDate, opt1.endDate, opt2.startDate, opt2.endDate).then(setComparison)
+        window.piu?.getPeriodComparison(opt1.startDate, opt1.endDate, opt2.startDate, opt2.endDate).then(setComparison).catch(() => setError('No se pudo generar la comparación.'))
       }
     }
   }
 
   useEffect(() => {
-    if (tab === 'comparison' && filterPreset !== 'custom' && filterPreset !== 'all') {
-      const opts = getPeriodOptions(filterPreset, fullTrends)
-      if (opts.length >= 2) {
-        setCompP1Value(opts[opts.length - 2].value)
-        setCompP2Value(opts[opts.length - 1].value)
-        runComparison(opts[opts.length - 2].value, opts[opts.length - 1].value)
+    if (tab === 'comparison') {
+      if (filterPreset === 'custom' || filterPreset === 'all') {
+        if (compCustomP1Start && compCustomP2Start) {
+          runComparison()
+        }
+      } else {
+        const opts = getPeriodOptions(filterPreset, fullTrends)
+        if (opts.length >= 2) {
+          setCompP1Value(opts[opts.length - 2].value)
+          setCompP2Value(opts[opts.length - 1].value)
+          runComparison(opts[opts.length - 2].value, opts[opts.length - 1].value)
+        }
       }
     }
-  }, [tab, filterPreset, fullTrends])
-
-  const handlePrintProduction = () => {
-    if (!dashboard) return
-    const doc = generarHojaProduccion(dashboard)
-    setPdfPreview({ doc, title: `produccion-piu-${dashboard.week.week_start}` })
-  }
-
-  const handlePrintShopping = () => {
-    if (ingredients.length === 0) {
-      alert('No hay ingredientes configurados en los platos para generar la lista de compras.')
-      return
-    }
-    const doc = generarListaCompras(ingredients)
-    setPdfPreview({ doc, title: `compras-piu-${dashboard?.week?.week_start || 'semana'}` })
-  }
+  }, [tab, filterPreset, fullTrends, compCustomP1Start, compCustomP1End, compCustomP2Start, compCustomP2End])
 
   if (!analytics) {
-    return <div style={{ padding: 'var(--spacing-xl)', textAlign: 'center', fontSize: 'var(--font-lg)' }}>Cargando...</div>
+    return <SkeletonAnalytics />
   }
 
   const tabs = [
     { id: 'top', label: 'Top Platos' },
     { id: 'clients', label: 'Top Clientes' },
     { id: 'trend', label: 'Tendencias' },
-    { id: 'comparison', label: 'Comparativa' },
-    { id: 'profitability', label: 'Rentabilidad' }
+    { id: 'comparison', label: 'Comparativa' }
   ]
 
   return (
     <div>
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -267,14 +272,6 @@ export default function Analytics() {
         marginBottom: 'var(--spacing-md)'
       }}>
         <h2>Análisis</h2>
-        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-          <button className="btn btn-outline btn-sm" onClick={handlePrintShopping}>
-            📋 Lista Compras
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={handlePrintProduction}>
-            🖨️ Hoja Producción
-          </button>
-        </div>
       </div>
 
       <div style={{
@@ -305,12 +302,15 @@ export default function Analytics() {
             <button className="btn btn-primary btn-sm" onClick={handleCustomFilter}>Filtrar</button>
           </div>
         )}
+        <div style={{ marginLeft: 'auto' }}>
+          <button className="btn btn-outline btn-sm" onClick={handleExcelExport}>↓ Excel</button>
+        </div>
       </div>
 
       <div style={{
         display: 'flex',
-        gap: 'var(--spacing-md)',
-        marginBottom: 'var(--spacing-lg)',
+        gap: 'var(--spacing-xs)',
+        marginBottom: 'var(--spacing-md)',
         flexWrap: 'wrap'
       }}>
         <StatCard label="Pedidos" value={analytics.totalOrders} />
@@ -328,361 +328,575 @@ export default function Analytics() {
             highlight="var(--accent)"
           />
         )}
+        {overproduction && (
+          <StatCard
+            label={overproduction.totalOverproductionCost > 0 ? 'Desperdicio' : 'Desperdicio'}
+            value={fmtMoney(overproduction.totalOverproductionCost)}
+            highlight={overproduction.totalOverproductionCost > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
+          />
+        )}
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-lg)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-lg)', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg)', paddingTop: 'var(--spacing-xs)', paddingBottom: 'var(--spacing-xs)' }}>
         {tabs.map(t => (
           <button
             key={t.id}
-            className={tab === t.id ? 'btn btn-primary' : 'btn btn-ghost'}
+            className={tab === t.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
             onClick={() => setTab(t.id)}
-            style={{ fontSize: 'var(--font-body)' }}
           >
             {t.label}
           </button>
         ))}
       </div>
 
-      {tab === 'top' && (
-        <div>
-          <div style={{ marginBottom: 'var(--spacing-md)' }}>
-            <input
-              type="text"
-              placeholder="Buscar plato..."
-              value={searchDish}
-              onChange={e => setSearchDish(e.target.value)}
-              style={{ width: '100%', maxWidth: '400px' }}
-            />
-          </div>
-          {analytics.topDishes.length === 0 ? (
-            <div className="empty-state card"><p>Sin datos en este período.</p></div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-              {analytics.topDishes
-                .filter(d => !searchDish || (d.name || '').toLowerCase().includes(searchDish.toLowerCase()))
-                .map((d, i) => {
-                const max = analytics.topDishes[0]?.total || 1
-                const barPct = Math.round((d.total / max) * 100)
-                const hasIngredients = d.cost > 0
-                const sumTimeSeries = (arr) => arr.reduce((a, i) => ({ ordered: a.ordered + (i.ordered || 0), produced: a.produced + (i.produced || 0) }), { ordered: 0, produced: 0 })
-                const isExpanded = expandedDish === d.id
-                const runDishComparison = async (dishId, p1s, p1e, p2s, p2e) => {
-                  const [prevData, currData] = await Promise.all([
-                    window.piu?.getDishTimeSeries(dishId, p1s || null, p1e || null),
-                    window.piu?.getDishTimeSeries(dishId, p2s || null, p2e || null)
-                  ])
-                  setDishComparison(prev => ({ ...prev, [dishId]: { prev: sumTimeSeries(prevData || []), curr: sumTimeSeries(currData || []) } }))
-                  const combinedStart = p1s && p2s ? (p1s < p2s ? p1s : p2s) : (p1s || p2s)
-                  const combinedEnd = p1e && p2e ? (p1e > p2e ? p1e : p2e) : (p1e || p2e)
-                  if (combinedStart && combinedEnd) {
-                    const cd = await window.piu?.getDishTimeSeries(dishId, combinedStart, combinedEnd)
-                    setDishTimeSeries(cd || [])
-                  }
-                }
-                const loadTimeSeries = async () => {
-                  if (isExpanded) { setExpandedDish(null); return }
-                  setExpandedDish(d.id)
-                  if (filterPreset === 'custom' || filterPreset === 'all') {
-                    const startDate = customStart || null
-                    const endDate = customEnd || null
-                    const data = await window.piu?.getDishTimeSeries(d.id, startDate, endDate)
-                    setDishTimeSeries(data || [])
-                    setDishCompDates(prev => ({ ...prev, [d.id]: { p1Start: '', p1End: '', p2Start: startDate || '', p2End: endDate || '' } }))
-                  } else {
-                    const opts = getPeriodOptions(filterPreset, fullTrends)
-                    const curOpt = opts[opts.length - 1]
-                    const prevOpt = opts.length >= 2 ? opts[opts.length - 2] : opts[0]
-                    setDishCompDates(prev => ({ ...prev, [d.id]: { p1: prevOpt?.value || '', p2: curOpt?.value || '' } }))
-                    if (prevOpt && curOpt) {
-                      runDishComparison(d.id, prevOpt.startDate, prevOpt.endDate, curOpt.startDate, curOpt.endDate)
+      {tab === 'top' && (() => {
+        const sortedDishes = analytics.topDishes
+          .filter(d => !searchDish || (d.name || '').toLowerCase().includes(searchDish.toLowerCase()))
+          .sort((a, b) => {
+            const dir = dishSortDir === 'asc' ? 1 : -1
+            if (dishSort === 'total') return (b.total - a.total) * dir
+            if (dishSort === 'totalProfit') return (b.totalProfit - a.totalProfit) * dir
+            if (dishSort === 'margin') {
+              const aM = a.price > 0 ? ((a.profit || 0) / a.price) : 0
+              const bM = b.price > 0 ? ((b.profit || 0) / b.price) : 0
+              return (bM - aM) * dir
+            }
+            if (dishSort === 'price') return (b.price - a.price) * dir
+            return 0
+          })
+
+        const getDishVal = (d) => {
+          if (dishSort === 'total') return d.total
+          if (dishSort === 'totalProfit') return d.totalProfit
+          if (dishSort === 'margin') return (d.profit || 0)
+          return d.price
+        }
+
+        const top10 = sortedDishes.slice(0, 10).map(d => ({ name: d.name, value: getDishVal(d) }))
+        const restVal = sortedDishes.slice(10).reduce((s, d) => s + getDishVal(d), 0)
+        if (restVal > 0) top10.push({ name: 'Otros', value: restVal })
+        const dishPieData = top10.map((item, i) => ({
+          ...item,
+          color: i < PIE_COLORS.length ? PIE_COLORS[i] : 'var(--text-secondary)'
+        }))
+
+        return (
+          <>
+            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Buscar plato..."
+                aria-label="Buscar plato"
+                value={searchDish}
+                onChange={e => setSearchDish(e.target.value)}
+                style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}
+              />
+              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Ordenar:</span>
+              {[
+                { id: 'total', label: 'Vendidos' },
+                { id: 'totalProfit', label: 'Ganancia' },
+                { id: 'margin', label: 'Margen %' },
+                { id: 'price', label: 'Precio' }
+              ].map(s => (
+                <button
+                  key={s.id}
+                  className={dishSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+                  onClick={() => {
+                    if (dishSort === s.id) {
+                      setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                    } else {
+                      setDishSort(s.id)
+                      setDishSortDir('asc')
                     }
-                  }
-                }
-                return (
-                  <div key={d.name} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-                      <span style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--primary)', minWidth: '40px' }}>#{i + 1}</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
-                          <div>
-                            <strong
-                              style={{ fontSize: 'var(--font-lg)', cursor: 'pointer', userSelect: 'none' }}
-                              onClick={loadTimeSeries}
-                            >
-                              {isExpanded ? '▾' : '▸'} {d.name}
-                            </strong>
-                            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginLeft: 'var(--spacing-sm)' }}>
-                              {d.total} vendidos
-                            </span>
+                  }}
+                  style={{ fontSize: 'var(--font-sm)' }}
+                >
+                  {s.label}
+                </button>
+              ))}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
+                aria-label="Cambiar dirección de orden"
+              >
+                {dishSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--spacing-lg)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 60%', minWidth: 0 }}>
+                {analytics.topDishes.length === 0 ? (
+                <div className="empty-state card"><p>No hay platos con pedidos en este período. Probá cambiando el filtro de fecha.</p></div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+                  {sortedDishes.slice(dishPage * LIST_PAGE_SIZE, (dishPage + 1) * LIST_PAGE_SIZE).map((d, i, arr) => {
+                    const globalIdx = dishPage * LIST_PAGE_SIZE + i
+                    const maxVal = arr.length > 0 ? Math.max(...arr.map(x => dishSort === 'total' ? x.total : dishSort === 'totalProfit' ? x.totalProfit : dishSort === 'margin' ? (x.profit || 0) : x.price)) : 1
+                    const barPct = Math.round(((dishSort === 'total' ? d.total : dishSort === 'totalProfit' ? d.totalProfit : dishSort === 'margin' ? (d.profit || 0) : d.price) / maxVal) * 100)
+                    const hasIngredients = d.cost > 0
+                    const sumTimeSeries = (arr) => arr.reduce((a, i) => ({ ordered: a.ordered + (i.ordered || 0), produced: a.produced + (i.produced || 0), overproduction: a.overproduction + (i.overproduction || 0) }), { ordered: 0, produced: 0, overproduction: 0 })
+                    const isExpanded = expandedDish === d.id
+                    const runDishComparison = async (dishId, p1s, p1e, p2s, p2e) => {
+                      try {
+                        const [prevData, currData] = await Promise.all([
+                          window.piu?.getDishTimeSeries(dishId, p1s || null, p1e || null),
+                          window.piu?.getDishTimeSeries(dishId, p2s || null, p2e || null)
+                        ])
+                        setDishComparison(prev => ({ ...prev, [dishId]: { prev: sumTimeSeries(prevData || []), curr: sumTimeSeries(currData || []) } }))
+                        const combinedStart = p1s && p2s ? (p1s < p2s ? p1s : p2s) : (p1s || p2s)
+                        const combinedEnd = p1e && p2e ? (p1e > p2e ? p1e : p2e) : (p1e || p2e)
+                        if (combinedStart && combinedEnd) {
+                          const cd = await window.piu?.getDishTimeSeries(dishId, combinedStart, combinedEnd)
+                          setDishTimeSeries(cd || [])
+                        }
+                      } catch (e) {
+                        setError('No se pudieron cargar los datos del plato.')
+                      }
+                    }
+                    const loadTimeSeries = async () => {
+                      if (isExpanded) { setExpandedDish(null); return }
+                      setExpandedDish(d.id)
+                      try {
+                        if (filterPreset === 'custom' || filterPreset === 'all') {
+                          const startDate = customStart || null
+                          const endDate = customEnd || null
+                          const data = await window.piu?.getDishTimeSeries(d.id, startDate, endDate)
+                          setDishTimeSeries(data || [])
+                          setDishCompDates(prev => ({ ...prev, [d.id]: { p1Start: '', p1End: '', p2Start: startDate || '', p2End: endDate || '' } }))
+                        } else {
+                          const opts = getPeriodOptions(filterPreset, fullTrends)
+                          const curOpt = opts[opts.length - 1]
+                          const prevOpt = opts.length >= 2 ? opts[opts.length - 2] : opts[0]
+                          setDishCompDates(prev => ({ ...prev, [d.id]: { p1: prevOpt?.value || '', p2: curOpt?.value || '' } }))
+                          if (prevOpt && curOpt) {
+                            runDishComparison(d.id, prevOpt.startDate, prevOpt.endDate, curOpt.startDate, curOpt.endDate)
+                          }
+                        }
+                      } catch (e) {
+                        setError('No se pudieron cargar los datos del plato.')
+                      }
+                    }
+                    return (
+                      <div key={d.name} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                          <span style={{ fontSize: 'var(--font-sm)', fontWeight: 900, color: 'var(--primary)', minWidth: '28px' }}>#{globalIdx + 1}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                              <div>
+                                <strong
+                                  style={{ fontSize: 'var(--font-sm)', cursor: 'pointer', userSelect: 'none' }}
+                                  onClick={loadTimeSeries}
+                                >
+                                  {isExpanded ? '▾' : '▸'} {d.name}
+                                </strong>
+                                <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', marginLeft: 'var(--spacing-xs)' }}>
+                                  {d.total} vendidos
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ height: 'calc(var(--touch-size) * 0.25)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden', marginBottom: '2px' }}>
+                              <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--primary)', borderRadius: '100px', transition: 'width 0.5s ease', minWidth: '20px' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                              <span>Precio: <strong>${d.price.toFixed(2)}</strong></span>
+                              {hasIngredients ? (
+                                <>
+                                  <span>Costo: <strong>${d.cost.toFixed(2)}</strong></span>
+                                  <span>Ganancia/ud: <strong style={{ color: d.profit > 0 ? 'var(--success)' : 'var(--danger)' }}>${d.profit.toFixed(2)}</strong></span>
+                                  <span>Ganancia total: <strong style={{ color: d.totalProfit > 0 ? 'var(--success)' : 'var(--danger)' }}>${d.totalProfit.toFixed(2)}</strong></span>
+                                </>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin ingredientes cargados</span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        <div style={{ height: 'calc(var(--touch-size) * 0.4)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden', marginBottom: 'var(--spacing-xs)' }}>
-                          <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--primary)', borderRadius: '100px', transition: 'width 0.5s ease', minWidth: '20px' }} />
-                        </div>
-                        <div style={{ display: 'flex', gap: 'var(--spacing-md)', fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                          <span>Precio: <strong>${d.price.toFixed(2)}</strong></span>
-                          {hasIngredients ? (
-                            <>
-                              <span>Costo: <strong>${d.cost.toFixed(2)}</strong></span>
-                              <span>Ganancia/ud: <strong style={{ color: d.profit > 0 ? 'var(--success)' : 'var(--danger)' }}>${d.profit.toFixed(2)}</strong></span>
-                              <span>Ganancia total: <strong style={{ color: d.totalProfit > 0 ? 'var(--success)' : 'var(--danger)' }}>${d.totalProfit.toFixed(2)}</strong></span>
-                            </>
-                          ) : (
-                            <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin ingredientes cargados</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    {isExpanded && (
-                      <div style={{
-                        padding: 'var(--spacing-sm) var(--spacing-md)',
-                        background: 'var(--bg)',
-                        borderRadius: 'var(--radius)',
-                        border: '1px solid var(--border)',
-                        fontSize: 'var(--font-sm)'
-                      }}>
-                        <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-sm)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                          {(filterPreset === 'custom' || filterPreset === 'all') ? (
-                            <>
-                              <div>
-                                <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Período A</label>
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                  <input type="date" value={dishCompDates[d.id]?.p1Start || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p1Start: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
-                                  <input type="date" value={dishCompDates[d.id]?.p1End || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p1End: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
-                                </div>
-                              </div>
-                              <span style={{ fontWeight: 700, marginBottom: '2px' }}>vs</span>
-                              <div>
-                                <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Período B</label>
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                  <input type="date" value={dishCompDates[d.id]?.p2Start || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p2Start: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
-                                  <input type="date" value={dishCompDates[d.id]?.p2End || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p2End: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
-                                </div>
-                              </div>
-                              <button className="btn btn-primary btn-sm" onClick={() => { const dcd = dishCompDates[d.id] || {}; runDishComparison(d.id, dcd.p1Start, dcd.p1End, dcd.p2Start, dcd.p2End) }}>
-                                Comparar
-                              </button>
-                            </>
-                          ) : (() => {
-                            const opts = getPeriodOptions(filterPreset, fullTrends)
-                            const dcd = dishCompDates[d.id] || {}
-                            return (
-                              <>
-                                <select value={dcd.p1 || ''} onChange={e => {
-                                  const v = e.target.value
-                                  setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p1: v } }))
-                                  const opt = opts.find(o => o.value === v)
-                                  const opt2 = opts.find(o => o.value === dcd.p2)
-                                  if (opt && opt2) runDishComparison(d.id, opt.startDate, opt.endDate, opt2.startDate, opt2.endDate)
-                                }} style={{ minWidth: '160px', fontSize: 'var(--font-xs)' }}>
-                                  <option value="">— A —</option>
-                                  {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                </select>
-                                <span style={{ fontWeight: 700, marginBottom: '2px' }}>vs</span>
-                                <select value={dcd.p2 || ''} onChange={e => {
-                                  const v = e.target.value
-                                  setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p2: v } }))
-                                  const opt = opts.find(o => o.value === v)
-                                  const opt1 = opts.find(o => o.value === dcd.p1)
-                                  if (opt && opt1) runDishComparison(d.id, opt1.startDate, opt1.endDate, opt.startDate, opt.endDate)
-                                }} style={{ minWidth: '160px', fontSize: 'var(--font-xs)' }}>
-                                  <option value="">— B —</option>
-                                  {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                </select>
-                              </>
-                            )
-                          })()}
-                        </div>
-
-                        {dishComparison[d.id] && (
+                        {isExpanded && (
                           <div style={{
-                            display: 'flex', gap: 'var(--spacing-md)',
-                            marginBottom: filterPreset !== 'week' && dishTimeSeries.length > 0 ? 'var(--spacing-sm)' : '0'
+                            padding: 'var(--spacing-sm) var(--spacing-md)',
+                            background: 'var(--bg)',
+                            borderRadius: 'var(--radius)',
+                            border: '1px solid var(--border)',
+                            fontSize: 'var(--font-sm)'
                           }}>
-                            <div className="card" style={{ flex: 1, textAlign: 'center', padding: 'var(--spacing-md)' }}>
-                              <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Período A</p>
-                              <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].prev.ordered}</p>
-                              <p style={{ fontSize: 'var(--font-xs)' }}>veces pedido</p>
-                              <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].prev.produced}</p>
-                              <p style={{ fontSize: 'var(--font-xs)' }}>producidos</p>
-                            </div>
-                            <div className="card" style={{ flex: 1, textAlign: 'center', padding: 'var(--spacing-md)' }}>
-                              <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Período B</p>
-                              <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].curr.ordered}</p>
-                              <p style={{ fontSize: 'var(--font-xs)' }}>veces pedido</p>
-                              <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].curr.produced}</p>
-                              <p style={{ fontSize: 'var(--font-xs)' }}>producidos</p>
-                            </div>
-                            <div className="card" style={{ flex: 1, textAlign: 'center', padding: 'var(--spacing-md)' }}>
-                              <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Cambio</p>
-                              {(() => {
-                                const { prev, curr } = dishComparison[d.id]
-                                const pc = (o, n) => o > 0 ? ((n - o) / o * 100).toFixed(1) : '—'
+                            <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-sm)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                              {(filterPreset === 'custom' || filterPreset === 'all') ? (
+                                <>
+                                  <div className="card" style={{ flex: '1 1 auto', padding: 'var(--spacing-sm)', minWidth: '200px' }}>
+                                    <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Periodo A</span>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                      <input type="date" value={dishCompDates[d.id]?.p1Start || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p1Start: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
+                                      <input type="date" value={dishCompDates[d.id]?.p1End || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p1End: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
+                                    </div>
+                                  </div>
+                                  <div className="card" style={{ flex: '1 1 auto', padding: 'var(--spacing-sm)', minWidth: '200px' }}>
+                                    <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Periodo B</span>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                      <input type="date" value={dishCompDates[d.id]?.p2Start || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p2Start: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
+                                      <input type="date" value={dishCompDates[d.id]?.p2End || ''} onChange={e => setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p2End: e.target.value } }))} style={{ width: '140px', fontSize: 'var(--font-xs)' }} />
+                                    </div>
+                                  </div>
+                                  <button className="btn btn-primary btn-sm" onClick={() => { const dcd = dishCompDates[d.id] || {}; runDishComparison(d.id, dcd.p1Start, dcd.p1End, dcd.p2Start, dcd.p2End) }}>
+                                    Comparar
+                                  </button>
+                                </>
+                              ) : (() => {
+                                const opts = getPeriodOptions(filterPreset, fullTrends)
+                                const dcd = dishCompDates[d.id] || {}
                                 return (
                                   <>
-                                    <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--primary)' }}>
-                                      {pc(prev.ordered, curr.ordered)}{pc(prev.ordered, curr.ordered) !== '—' ? '%' : ''}
-                                    </p>
-                                    <p style={{ fontSize: 'var(--font-xs)' }}>veces pedido</p>
-                                    <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>
-                                      {pc(prev.produced, curr.produced)}{pc(prev.produced, curr.produced) !== '—' ? '%' : ''}
-                                    </p>
-                                    <p style={{ fontSize: 'var(--font-xs)' }}>producción</p>
+                                    <div className="card" style={{ flex: '1 1 auto', padding: 'var(--spacing-sm)', minWidth: '200px' }}>
+                                      <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Periodo A</span>
+                                      <select value={dcd.p1 || ''} onChange={e => {
+                                        const v = e.target.value
+                                        setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p1: v } }))
+                                        const opt = opts.find(o => o.value === v)
+                                        const opt2 = opts.find(o => o.value === dcd.p2)
+                                        if (opt && opt2) runDishComparison(d.id, opt.startDate, opt.endDate, opt2.startDate, opt2.endDate)
+                                      }} style={{ width: '100%', fontSize: 'var(--font-xs)' }}>
+                                        <option value="">— Seleccionar —</option>
+                                        {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                      </select>
+                                    </div>
+                                    <div className="card" style={{ flex: '1 1 auto', padding: 'var(--spacing-sm)', minWidth: '200px' }}>
+                                      <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Periodo B</span>
+                                      <select value={dcd.p2 || ''} onChange={e => {
+                                        const v = e.target.value
+                                        setDishCompDates(prev => ({ ...prev, [d.id]: { ...prev[d.id], p2: v } }))
+                                        const opt = opts.find(o => o.value === v)
+                                        const opt1 = opts.find(o => o.value === dcd.p1)
+                                        if (opt && opt1) runDishComparison(d.id, opt1.startDate, opt1.endDate, opt.startDate, opt.endDate)
+                                      }} style={{ width: '100%', fontSize: 'var(--font-xs)' }}>
+                                        <option value="">— Seleccionar —</option>
+                                        {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                      </select>
+                                    </div>
                                   </>
                                 )
                               })()}
                             </div>
+
+                            {dishComparison[d.id] && (
+                              <div style={{
+                                display: 'flex', gap: 'var(--spacing-md)',
+                                marginBottom: filterPreset !== 'week' && dishTimeSeries.length > 0 ? 'var(--spacing-sm)' : '0'
+                              }}>
+                                <div className="card" style={{ flex: 1, textAlign: 'center', padding: 'var(--spacing-md)' }}>
+                                  <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Período A</p>
+                                  <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].prev.ordered}</p>
+                                  <p style={{ fontSize: 'var(--font-xs)' }}>veces pedido</p>
+                                  <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].prev.produced}</p>
+                                  <p style={{ fontSize: 'var(--font-xs)' }}>producidos</p>
+                                  {dishComparison[d.id].prev.overproduction > 0 && (
+                                    <>
+                                      <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--danger)' }}>{dishComparison[d.id].prev.overproduction}</p>
+                                      <p style={{ fontSize: 'var(--font-xs)' }}>sobra</p>
+                                    </>
+                                  )}
+                                </div>
+                                <div className="card" style={{ flex: 1, textAlign: 'center', padding: 'var(--spacing-md)' }}>
+                                  <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Período B</p>
+                                  <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].curr.ordered}</p>
+                                  <p style={{ fontSize: 'var(--font-xs)' }}>veces pedido</p>
+                                  <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishComparison[d.id].curr.produced}</p>
+                                  <p style={{ fontSize: 'var(--font-xs)' }}>producidos</p>
+                                  {dishComparison[d.id].curr.overproduction > 0 && (
+                                    <>
+                                      <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--danger)' }}>{dishComparison[d.id].curr.overproduction}</p>
+                                      <p style={{ fontSize: 'var(--font-xs)' }}>sobra</p>
+                                    </>
+                                  )}
+                                </div>
+                                <div className="card" style={{ flex: 1, textAlign: 'center', padding: 'var(--spacing-md)' }}>
+                                  <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Cambio</p>
+                                  {(() => {
+                                    const { prev, curr } = dishComparison[d.id]
+                                    const pc = (o, n) => o > 0 ? ((n - o) / o * 100).toFixed(1) : '—'
+                                    return (
+                                      <>
+                                        <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--primary)' }}>
+                                          {pc(prev.ordered, curr.ordered)}{pc(prev.ordered, curr.ordered) !== '—' ? '%' : ''}
+                                        </p>
+                                        <p style={{ fontSize: 'var(--font-xs)' }}>veces pedido</p>
+                                        <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>
+                                          {pc(prev.produced, curr.produced)}{pc(prev.produced, curr.produced) !== '—' ? '%' : ''}
+                                        </p>
+                                        <p style={{ fontSize: 'var(--font-xs)' }}>producción</p>
+                                        <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--danger)' }}>
+                                          {pc(prev.overproduction, curr.overproduction)}{pc(prev.overproduction, curr.overproduction) !== '—' ? '%' : ''}
+                                        </p>
+                                        <p style={{ fontSize: 'var(--font-xs)' }}>sobra</p>
+                                      </>
+                                    )
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+
+                            {filterPreset !== 'week' && dishTimeSeries.length > 0 && (
+                              <>
+                                <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
+                                  Pedidos por semana
+                                </div>
+                                <BarChart
+                                  data={dishTimeSeries}
+                                  labelKey="period"
+                                  valueKey="ordered"
+                                  barColor="var(--primary)"
+                                  formatLabel={formatDate}
+                                />
+                                <div style={{ fontWeight: 600, margin: 'var(--spacing-sm) 0 var(--spacing-xs)', color: 'var(--text)' }}>
+                                  Producido por semana
+                                </div>
+                                <BarChart
+                                  data={dishTimeSeries}
+                                  labelKey="period"
+                                  valueKey="produced"
+                                  barColor="var(--success)"
+                                  formatLabel={formatDate}
+                                />
+                                <div style={{ fontWeight: 600, margin: 'var(--spacing-sm) 0 var(--spacing-xs)', color: 'var(--text)' }}>
+                                  Sobreproducción por semana
+                                </div>
+                                <BarChart
+                                  data={dishTimeSeries}
+                                  labelKey="period"
+                                  valueKey="overproduction"
+                                  barColor="var(--danger)"
+                                  formatLabel={formatDate}
+                                />
+                              </>
+                            )}
                           </div>
                         )}
-
-                        {filterPreset !== 'week' && dishTimeSeries.length > 0 && (
-                          <>
-                            <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
-                              Pedidos por semana
-                            </div>
-                            <BarChart
-                              data={dishTimeSeries}
-                              labelKey="period"
-                              valueKey="ordered"
-                              barColor="var(--primary)"
-                              formatLabel={formatDate}
-                            />
-                            <div style={{ fontWeight: 600, margin: 'var(--spacing-sm) 0 var(--spacing-xs)', color: 'var(--text)' }}>
-                              Producido por semana
-                            </div>
-                            <BarChart
-                              data={dishTimeSeries}
-                              labelKey="period"
-                              valueKey="produced"
-                              barColor="var(--success)"
-                              formatLabel={formatDate}
-                            />
-                          </>
-                        )}
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'clients' && (
-        <div>
-          <div style={{ marginBottom: 'var(--spacing-md)' }}>
-            <input
-              type="text"
-              placeholder="Buscar cliente..."
-              value={searchClient}
-              onChange={e => setSearchClient(e.target.value)}
-              style={{ width: '100%', maxWidth: '400px' }}
-            />
-          </div>
-          {analytics.topClients.length === 0 ? (
-            <div className="empty-state card"><p>Sin datos en este período.</p></div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-              {analytics.topClients
-                .filter(c => !searchClient || `${c.name} ${c.last_name}`.toLowerCase().includes(searchClient.toLowerCase()))
-                .map((c, i) => {
-                const max = analytics.topClients[0]?.order_count || 1
-                const barPct = Math.round((c.order_count / max) * 100)
-                const cKey = `${c.name}-${c.last_name}`
-                const isExpanded = expandedClient === cKey
-                const loadTimeSeries = async () => {
-                  if (isExpanded) { setExpandedClient(null); return }
-                  setExpandedClient(cKey)
-                  const { startDate, endDate } = filterPreset === 'custom'
-                    ? { startDate: customStart || null, endDate: customEnd || null }
-                    : getPresetRange(filterPreset)
-                  const data = await window.piu?.getClientTimeSeries(c.clientId, startDate, endDate)
-                  setClientTimeSeries(data || [])
-                }
+                    )
+                  })}
+                </div>
+              )}
+              {sortedDishes.length > LIST_PAGE_SIZE && (() => {
+                const dishTotalPages = Math.ceil(sortedDishes.length / LIST_PAGE_SIZE)
+                const safeDishPage = Math.min(dishPage, dishTotalPages - 1)
                 return (
-                  <div key={cKey} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-                      <span style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--primary)', minWidth: '40px' }}>#{i + 1}</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
-                          <strong
-                            style={{ fontSize: 'var(--font-lg)', cursor: 'pointer', userSelect: 'none' }}
-                            onClick={loadTimeSeries}
-                          >
-                            {isExpanded ? '▾' : '▸'} {c.name} {c.last_name}
-                          </strong>
-                          <span style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>{c.order_count}</span>
-                        </div>
-                        <div style={{ height: 'calc(var(--touch-size) * 0.4)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden' }}>
-                          <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--accent)', borderRadius: '100px', transition: 'width 0.5s ease', minWidth: '20px' }} />
-                        </div>
-                        <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginTop: 'var(--spacing-xs)', fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                          <span>{c.order_count} pedidos</span>
-                          {c.favorite_dish && <span>Plato favorito: <strong>{c.favorite_dish}</strong></span>}
-                        </div>
-                      </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-sm)', padding: '0 var(--spacing-xs)' }}>
+                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                      Mostrando {safeDishPage * LIST_PAGE_SIZE + 1}–{Math.min((safeDishPage + 1) * LIST_PAGE_SIZE, sortedDishes.length)} de {sortedDishes.length}
+                    </span>
+                    <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                      <button className="btn btn-ghost btn-sm" disabled={safeDishPage === 0} onClick={() => setDishPage(p => p - 1)}>Anterior</button>
+                      <button className="btn btn-ghost btn-sm" disabled={safeDishPage >= dishTotalPages - 1} onClick={() => setDishPage(p => p + 1)}>Siguiente</button>
                     </div>
-                    {isExpanded && clientTimeSeries.length > 0 && (
-                      filterPreset === 'week' ? (
-                        <div style={{
-                          padding: 'var(--spacing-sm) var(--spacing-md)',
-                          background: 'var(--bg)',
-                          borderRadius: 'var(--radius)',
-                          border: '1px solid var(--border)',
-                          fontSize: 'var(--font-sm)'
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
-                            <div>
-                              <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Pedidos esta semana</p>
-                              <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900, color: 'var(--accent)' }}>
-                                {clientTimeSeries[0]?.orders || 0}
-                              </p>
+                  </div>
+                )
+              })()}
+              </div>
+              <div style={{ flex: '1 1 280px', minWidth: '280px' }}>
+                {sortedDishes.length > 0 && <PieChart data={dishPieData} title="Distribución" />}
+              </div>
+            </div>
+          </>
+        )
+      })()}
+
+      {tab === 'clients' && (() => {
+        const sortedClients = analytics.topClients
+          .filter(c => !searchClient || `${c.name} ${c.last_name}`.toLowerCase().includes(searchClient.toLowerCase()))
+          .sort((a, b) => {
+            const dir = clientSortDir === 'asc' ? 1 : -1
+            if (clientSort === 'orders') return (b.order_count - a.order_count) * dir
+            if (clientSort === 'dishes') return (b.total_dishes - a.total_dishes) * dir
+            if (clientSort === 'revenue') return ((b.totalRevenue || 0) - (a.totalRevenue || 0)) * dir
+            return 0
+          })
+
+        const getClientVal = (c) => {
+          if (clientSort === 'orders') return c.order_count
+          if (clientSort === 'dishes') return c.total_dishes
+          return c.totalRevenue || 0
+        }
+
+        const top10 = sortedClients.slice(0, 10).map(c => ({ name: `${c.name} ${c.last_name}`, value: getClientVal(c) }))
+        const restVal = sortedClients.slice(10).reduce((s, c) => s + getClientVal(c), 0)
+        if (restVal > 0) top10.push({ name: 'Otros', value: restVal })
+        const clientPieData = top10.map((item, i) => ({
+          ...item,
+          color: i < PIE_COLORS.length ? PIE_COLORS[i] : 'var(--text-secondary)'
+        }))
+
+        return (
+          <>
+            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Buscar cliente..."
+                aria-label="Buscar cliente"
+                value={searchClient}
+                onChange={e => setSearchClient(e.target.value)}
+                style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}
+              />
+              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Ordenar:</span>
+              {[
+                { id: 'orders', label: 'Pedidos' },
+                { id: 'dishes', label: 'Platos' },
+                { id: 'revenue', label: 'Gastado' }
+              ].map(s => (
+                <button
+                  key={s.id}
+                  className={clientSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+                  onClick={() => {
+                    if (clientSort === s.id) {
+                      setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                    } else {
+                      setClientSort(s.id)
+                      setClientSortDir('asc')
+                    }
+                  }}
+                  style={{ fontSize: 'var(--font-sm)' }}
+                >
+                  {s.label}
+                </button>
+              ))}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
+                aria-label="Cambiar dirección de orden"
+              >
+                {clientSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--spacing-lg)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 60%', minWidth: 0 }}>
+                {analytics.topClients.length === 0 ? (
+                <div className="empty-state card"><p>No hay clientes con pedidos en este período. Probá cambiando el filtro de fecha.</p></div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+                  {sortedClients.slice(clientPage * LIST_PAGE_SIZE, (clientPage + 1) * LIST_PAGE_SIZE).map((c, i, arr) => {
+                    const globalIdx = clientPage * LIST_PAGE_SIZE + i
+                    const maxVal = arr.length > 0 ? Math.max(...arr.map(x => clientSort === 'orders' ? x.order_count : clientSort === 'dishes' ? x.total_dishes : x.totalRevenue || 0)) : 1
+                    const barPct = maxVal > 0 ? Math.round(((clientSort === 'orders' ? c.order_count : clientSort === 'dishes' ? c.total_dishes : c.totalRevenue || 0) / maxVal) * 100) : 0
+                    const cKey = `${c.name}-${c.last_name}`
+                    const isExpanded = expandedClient === cKey
+                    const loadTimeSeries = async () => {
+                      if (isExpanded) { setExpandedClient(null); return }
+                      setExpandedClient(cKey)
+                      try {
+                        const { startDate, endDate } = filterPreset === 'custom'
+                          ? { startDate: customStart || null, endDate: customEnd || null }
+                          : getPresetRange(filterPreset)
+                        const data = await window.piu?.getClientTimeSeries(c.clientId, startDate, endDate)
+                        setClientTimeSeries(data || [])
+                      } catch (e) {
+                        setError('No se pudieron cargar los datos del cliente.')
+                      }
+                    }
+                    return (
+                      <div key={cKey} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                          <span style={{ fontSize: 'var(--font-sm)', fontWeight: 900, color: 'var(--primary)', minWidth: '28px' }}>#{globalIdx + 1}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                              <strong
+                                style={{ fontSize: 'var(--font-sm)', cursor: 'pointer', userSelect: 'none' }}
+                                onClick={loadTimeSeries}
+                              >
+                                {isExpanded ? '▾' : '▸'} {c.name} {c.last_name}
+                              </strong>
+                              <span style={{ fontSize: 'var(--font-sm)', fontWeight: 700 }}>
+                                {clientSort === 'dishes' ? c.total_dishes : clientSort === 'revenue' ? fmtMoney(c.totalRevenue) : c.order_count}
+                              </span>
+                            </div>
+                            <div style={{ height: 'calc(var(--touch-size) * 0.25)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden' }}>
+                              <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--accent)', borderRadius: '100px', transition: 'width 0.5s ease', minWidth: '20px' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginTop: '2px', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                              <span>{c.order_count} pedidos</span>
+                              <span>{c.total_dishes} platos</span>
+                              {c.totalRevenue > 0 && <span>Gastó: <strong>{fmtMoney(c.totalRevenue)}</strong></span>}
+                              {c.favorite_dish && <span>Plato favorito: <strong>{c.favorite_dish}</strong></span>}
                             </div>
                           </div>
                         </div>
-                      ) : (
-                        <div style={{
-                          padding: 'var(--spacing-sm) var(--spacing-md)',
-                          background: 'var(--bg)',
-                          borderRadius: 'var(--radius)',
-                          border: '1px solid var(--border)',
-                          fontSize: 'var(--font-sm)'
-                        }}>
-                          <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
-                            Pedidos por semana
-                          </div>
-                          <BarChart
-                            data={clientTimeSeries}
-                            labelKey="period"
-                            valueKey="orders"
-                            barColor="var(--accent)"
-                            formatLabel={formatDate}
-                          />
-                        </div>
-                      )
-                    )}
+                        {isExpanded && clientTimeSeries.length > 0 && (
+                          filterPreset === 'week' ? (
+                            <div style={{
+                              padding: 'var(--spacing-sm) var(--spacing-md)',
+                              background: 'var(--bg)',
+                              borderRadius: 'var(--radius)',
+                              border: '1px solid var(--border)',
+                              fontSize: 'var(--font-sm)'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
+                                <div>
+                                  <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Pedidos esta semana</p>
+                                  <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900, color: 'var(--accent)' }}>
+                                    {clientTimeSeries[0]?.orders || 0}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{
+                              padding: 'var(--spacing-sm) var(--spacing-md)',
+                              background: 'var(--bg)',
+                              borderRadius: 'var(--radius)',
+                              border: '1px solid var(--border)',
+                              fontSize: 'var(--font-sm)'
+                            }}>
+                              <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
+                                Pedidos por semana
+                              </div>
+                              <BarChart
+                                data={clientTimeSeries}
+                                labelKey="period"
+                                valueKey="orders"
+                                barColor="var(--accent)"
+                                formatLabel={formatDate}
+                              />
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {sortedClients.length > LIST_PAGE_SIZE && (() => {
+                const clientTotalPages = Math.ceil(sortedClients.length / LIST_PAGE_SIZE)
+                const safeClientPage = Math.min(clientPage, clientTotalPages - 1)
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-sm)', padding: '0 var(--spacing-xs)' }}>
+                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                      Mostrando {safeClientPage * LIST_PAGE_SIZE + 1}–{Math.min((safeClientPage + 1) * LIST_PAGE_SIZE, sortedClients.length)} de {sortedClients.length}
+                    </span>
+                    <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                      <button className="btn btn-ghost btn-sm" disabled={safeClientPage === 0} onClick={() => setClientPage(p => p - 1)}>Anterior</button>
+                      <button className="btn btn-ghost btn-sm" disabled={safeClientPage >= clientTotalPages - 1} onClick={() => setClientPage(p => p + 1)}>Siguiente</button>
+                    </div>
                   </div>
                 )
-              })}
+              })()}
+              </div>
+              <div style={{ flex: '1 1 280px', minWidth: '280px' }}>
+                {sortedClients.length > 0 && <PieChart data={clientPieData} title="Distribución" />}
+              </div>
             </div>
-          )}
-        </div>
-      )}
+          </>
+        )
+      })()}
 
       {tab === 'trend' && (
         <div>
           <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-md)' }}>
             {[
-              { id: 'weekly', label: 'Semanal' },
               { id: 'monthly', label: 'Mensual' },
+              { id: 'quarterly', label: 'Trimestral' },
               { id: 'yearly', label: 'Anual' }
             ].map(p => (
               <button
                 key={p.id}
-                className={trendPeriod === p.id ? 'btn btn-primary' : 'btn btn-ghost'}
+                className={trendPeriod === p.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
                 onClick={() => setTrendPeriod(p.id)}
-                style={{ fontSize: 'var(--font-body)' }}
               >
                 {p.label}
               </button>
@@ -690,40 +904,74 @@ export default function Analytics() {
           </div>
 
           {(() => {
-            const data = trendPeriod === 'weekly' ? trends.weekly
-              : trendPeriod === 'monthly' ? trends.monthly
+            const data = trendPeriod === 'monthly' ? trends.monthly
+              : trendPeriod === 'quarterly' ? trends.quarterly
               : trends.yearly
-            const labelKey = trendPeriod === 'weekly' ? 'week_start' : trendPeriod === 'monthly' ? 'month' : 'year'
-            const fmtLabel = trendPeriod === 'weekly' ? formatDate
-              : trendPeriod === 'monthly' ? (m) => `${m.slice(5)}/${m.slice(2, 4)}`
+            const labelKey = trendPeriod === 'monthly' ? 'month'
+              : trendPeriod === 'quarterly' ? 'quarter'
+              : 'year'
+            const fmtLabel = trendPeriod === 'monthly' ? (m) => `${m.slice(5)}/${m.slice(2, 4)}`
+              : trendPeriod === 'quarterly' ? (q) => q
               : (y) => y
 
-            if (data.length === 0) return <div className="empty-state card"><p>No hay datos en este período.</p></div>
+            if (data.length === 0) return <div className="empty-state card"><p>No hay tendencias para este período. Probá con un rango de fechas más amplio.</p></div>
+
+            const PAGE_SIZE = 12
+            const totalPages = Math.ceil(data.length / PAGE_SIZE)
+            const safePage = Math.min(tablePage, totalPages - 1)
+            const pageData = data.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
             return (
               <>
-                <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Ingresos</h3>
-                <BarChart data={data} labelKey={labelKey} valueKey="revenue" barColor="var(--success)" formatLabel={fmtLabel} formatValue={fmtMoney} />
-                <h3 style={{ margin: 'var(--spacing-md) 0 var(--spacing-sm)' }}>Costos</h3>
-                <BarChart data={data} labelKey={labelKey} valueKey="cost" barColor="var(--danger)" formatLabel={fmtLabel} formatValue={fmtMoney} />
-                <h3 style={{ margin: 'var(--spacing-md) 0 var(--spacing-sm)' }}>Ganancias</h3>
-                <BarChart data={data} labelKey={labelKey} valueKey="profit" barColor="var(--primary)" formatLabel={fmtLabel} formatValue={fmtMoney} />
+                <div className="tendencias-layout" style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', alignItems: 'stretch', flexWrap: 'wrap' }}>
+                  <div className="card" style={{ flex: '1 1 55%', padding: 'var(--spacing-md)', overflowX: 'auto', minWidth: 0 }}>
+                    <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+                      <h4 style={{ marginBottom: 'var(--spacing-xs)' }}>Ingresos</h4>
+                      <BarChart data={data} labelKey={labelKey} valueKey="revenue" barColor="var(--success)" formatLabel={fmtLabel} formatValue={fmtMoney} scrollable={false} />
+                    </div>
+                    <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+                      <h4 style={{ marginBottom: 'var(--spacing-xs)' }}>Costos</h4>
+                      <BarChart data={data} labelKey={labelKey} valueKey="cost" barColor="var(--danger)" formatLabel={fmtLabel} formatValue={fmtMoney} scrollable={false} />
+                    </div>
+                    <div>
+                      <h4 style={{ marginBottom: 'var(--spacing-xs)' }}>Ganancias</h4>
+                      <BarChart data={data} labelKey={labelKey} valueKey="profit" barColor="var(--primary)" formatLabel={fmtLabel} formatValue={fmtMoney} scrollable={false} />
+                    </div>
+                  </div>
+                  <div style={{ flex: '1 1 35%', minWidth: '300px', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+                    <div className="card" style={{ flex: 1, padding: 'var(--spacing-md)', display: 'flex', flexDirection: 'column' }}>
+                      <h4 style={{ marginBottom: 'var(--spacing-sm)' }}>Pedidos por semana</h4>
+                      <div style={{ flex: 1 }}><BarChart data={data} labelKey={labelKey} valueKey="order_count" barColor="var(--accent)" formatLabel={fmtLabel} /></div>
+                    </div>
+                    {analytics.dayOfWeek && analytics.dayOfWeek.some(d => d.count > 0) && (
+                      <div className="card" style={{ flex: 1, padding: 'var(--spacing-md)', display: 'flex', flexDirection: 'column' }}>
+                        <h4 style={{ marginBottom: 'var(--spacing-sm)' }}>Pedidos por día</h4>
+                        <div style={{ flex: 1 }}><BarChart
+                          data={analytics.dayOfWeek}
+                          labelKey="name"
+                          valueKey="count"
+                          barColor="var(--accent)"
+                        /></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 <h3 style={{ margin: 'var(--spacing-lg) 0 var(--spacing-md)' }}>Datos por período</h3>
                 <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-sm)' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid var(--border)', background: 'var(--bg-card)' }}>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'left' }}>Período</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Ingresos</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Costos</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Ganancia</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Margen</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Pedidos</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'left' }}>Período</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Ingresos</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Costos</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Ganancia</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Margen</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Pedidos</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.map((row) => {
+                      {pageData.map((row) => {
                         const label = row[labelKey]
                         const margin = row.revenue > 0 ? (row.profit / row.revenue * 100) : 0
                         return (
@@ -761,6 +1009,19 @@ export default function Analytics() {
                     </tbody>
                   </table>
                 </div>
+
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-sm)', padding: '0 var(--spacing-xs)' }}>
+                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                      Mostrando {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, data.length)} de {data.length}
+                    </span>
+                    <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                      <button className="btn btn-ghost btn-sm" disabled={safePage === 0} onClick={() => setTablePage(p => p - 1)}>Anterior</button>
+                      <button className="btn btn-ghost btn-sm" disabled={safePage >= totalPages - 1} onClick={() => setTablePage(p => p + 1)}>Siguiente</button>
+                    </div>
+                  </div>
+                )}
+
               </>
             )
           })()}
@@ -770,41 +1031,40 @@ export default function Analytics() {
       {tab === 'comparison' && (
         <div>
           {(filterPreset === 'custom' || filterPreset === 'all') ? (
-            <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div>
-                <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Período 1</label>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <input type="date" value={compCustomP1Start} onChange={e => setCompCustomP1Start(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
-                  <input type="date" value={compCustomP1End} onChange={e => setCompCustomP1End(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
-                </div>
+            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="card" style={{ padding: 'var(--spacing-sm)', display: 'flex', gap: '4px', alignItems: 'center', flex: '1 1 auto' }}>
+                <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600 }}>P1:</span>
+                <input type="date" value={compCustomP1Start} onChange={e => setCompCustomP1Start(e.target.value)} style={{ width: 130, fontSize: 'var(--font-sm)' }} />
+                <span style={{ fontSize: 'var(--font-xs)' }}>—</span>
+                <input type="date" value={compCustomP1End} onChange={e => setCompCustomP1End(e.target.value)} style={{ width: 130, fontSize: 'var(--font-sm)' }} />
               </div>
-              <span style={{ fontWeight: 700, marginTop: 'var(--spacing-md)' }}>vs</span>
-              <div>
-                <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Período 2</label>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <input type="date" value={compCustomP2Start} onChange={e => setCompCustomP2Start(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
-                  <input type="date" value={compCustomP2End} onChange={e => setCompCustomP2End(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
-                </div>
+              <div className="card" style={{ padding: 'var(--spacing-sm)', display: 'flex', gap: '4px', alignItems: 'center', flex: '1 1 auto' }}>
+                <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600 }}>P2:</span>
+                <input type="date" value={compCustomP2Start} onChange={e => setCompCustomP2Start(e.target.value)} style={{ width: 130, fontSize: 'var(--font-sm)' }} />
+                <span style={{ fontSize: 'var(--font-xs)' }}>—</span>
+                <input type="date" value={compCustomP2End} onChange={e => setCompCustomP2End(e.target.value)} style={{ width: 130, fontSize: 'var(--font-sm)' }} />
               </div>
-              <button className="btn btn-primary btn-sm" onClick={() => runComparison()} style={{ marginTop: 'var(--spacing-md)' }}>
-                Comparar
-              </button>
             </div>
           ) : (
-            <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               {(() => {
                 const opts = getPeriodOptions(filterPreset, fullTrends)
                 return (
                   <>
-                    <select value={compP1Value} onChange={e => { setCompP1Value(e.target.value); runComparison(e.target.value, compP2Value) }} style={{ minWidth: '180px' }}>
-                      <option value="">— Seleccionar —</option>
-                      {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                    <span style={{ fontWeight: 700 }}>vs</span>
-                    <select value={compP2Value} onChange={e => { setCompP2Value(e.target.value); runComparison(compP1Value, e.target.value) }} style={{ minWidth: '180px' }}>
-                      <option value="">— Seleccionar —</option>
-                      {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                    <div className="card" style={{ padding: 'var(--spacing-sm)', flex: '1 1 auto', minWidth: '200px' }}>
+                      <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Periodo A</span>
+                      <select value={compP1Value} onChange={e => { setCompP1Value(e.target.value); runComparison(e.target.value, compP2Value) }} style={{ width: '100%', fontSize: 'var(--font-sm)' }}>
+                        <option value="">— Seleccionar —</option>
+                        {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    <div className="card" style={{ padding: 'var(--spacing-sm)', flex: '1 1 auto', minWidth: '200px' }}>
+                      <span style={{ fontSize: 'var(--font-xs)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Periodo B</span>
+                      <select value={compP2Value} onChange={e => { setCompP2Value(e.target.value); runComparison(compP1Value, e.target.value) }} style={{ width: '100%', fontSize: 'var(--font-sm)' }}>
+                        <option value="">— Seleccionar —</option>
+                        {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
                   </>
                 )
               })()}
@@ -813,11 +1073,16 @@ export default function Analytics() {
 
           {comparison && (() => {
             const chartData = [
-              { label: 'Pedidos', p1: comparison.period1.orders, p2: comparison.period2.orders },
               { label: 'Ingresos', p1: comparison.period1.revenue, p2: comparison.period2.revenue },
               { label: 'Costos', p1: comparison.period1.cost, p2: comparison.period2.cost },
               { label: 'Ganancia', p1: comparison.period1.profit, p2: comparison.period2.profit },
             ]
+            const marginData = [
+              { label: 'Margen %', p1: comparison.period1.margin, p2: comparison.period2.margin },
+            ]
+            const p1AvgCost = comparison.period1.orders > 0 ? comparison.period1.cost / comparison.period1.orders : 0
+            const p2AvgCost = comparison.period2.orders > 0 ? comparison.period2.cost / comparison.period2.orders : 0
+            const inflation = p1AvgCost > 0 ? ((p2AvgCost - p1AvgCost) / p1AvgCost * 100) : 0
             const compOpts = getPeriodOptions(filterPreset, fullTrends)
             const p1Opt = compOpts.find(o => o.value === compP1Value)
             const p2Opt = compOpts.find(o => o.value === compP2Value)
@@ -825,8 +1090,8 @@ export default function Analytics() {
             const p2Label = filterPreset === 'custom' || filterPreset === 'all' ? 'Período 2' : (p2Opt?.label || 'Período B')
             return (
               <>
-                <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
-                  <div className="card" style={{ flex: 1, textAlign: 'center' }}>
+                <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', flexWrap: 'wrap' }}>
+                  <div className="card" style={{ flex: '1 1 250px', textAlign: 'center' }}>
                     <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>{p1Label}</p>
                     <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900 }}>{comparison.period1.orders}</p>
                     <p>pedidos</p>
@@ -834,7 +1099,7 @@ export default function Analytics() {
                     <p style={{ color: 'var(--danger)' }}>{fmtMoney(comparison.period1.cost)}</p>
                     <p style={{ color: 'var(--primary)', fontWeight: 700 }}>{fmtMoney(comparison.period1.profit)}</p>
                   </div>
-                  <div className="card" style={{ flex: 1, textAlign: 'center' }}>
+                  <div className="card" style={{ flex: '1 1 250px', textAlign: 'center' }}>
                     <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>{p2Label}</p>
                     <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900 }}>{comparison.period2.orders}</p>
                     <p>pedidos</p>
@@ -844,31 +1109,71 @@ export default function Analytics() {
                   </div>
                 </div>
 
-                <div style={{ marginBottom: 'var(--spacing-md)' }}>
-                  <GroupedBarChart
-                    data={chartData}
-                    labelKey="label"
-                    series={[
-                      { key: 'p1', label: p1Label, color: 'var(--primary)' },
-                      { key: 'p2', label: p2Label, color: 'var(--accent)' }
-                    ]}
-                    formatValue={(v) => {
-                      if (typeof v === 'number') {
-                        return Number.isInteger(v) ? v : `$${(v).toFixed(0)}`
-                      }
-                      return v
-                    }}
-                  />
+                <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)' }}>
+                  <div style={{ display: 'flex', gap: 'var(--spacing-xl)', flexWrap: 'wrap', alignItems: 'stretch' }}>
+                    <div style={{ flex: '1 1 300px' }}>
+                      <h4 style={{ marginBottom: 'var(--spacing-sm)', fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', textAlign: 'center' }}>Ingresos / Costos / Ganancia</h4>
+                      <div style={{ display: 'flex', justifyContent: 'center' }}>
+                        <GroupedBarChart
+                          data={chartData}
+                          labelKey="label"
+                          series={[
+                            { key: 'p1', label: p1Label, color: 'var(--primary)' },
+                            { key: 'p2', label: p2Label, color: 'var(--accent)' }
+                          ]}
+                          formatValue={(v) => {
+                            if (typeof v === 'number') {
+                              return `$${Math.round(v).toLocaleString('es-AR')}`
+                            }
+                            return v
+                          }}
+                          scrollable={false}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <h4 style={{ marginBottom: 'var(--spacing-sm)', fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', textAlign: 'center' }}>Margen %</h4>
+                      <div style={{ display: 'flex', justifyContent: 'center' }}>
+                        <GroupedBarChart
+                          data={marginData}
+                          labelKey="label"
+                          series={[
+                            { key: 'p1', label: p1Label, color: 'var(--primary)' },
+                            { key: 'p2', label: p2Label, color: 'var(--accent)' }
+                          ]}
+                          formatValue={(v) => typeof v === 'number' ? `${v.toFixed(1)}%` : v}
+                          scrollable={false}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ flex: '1 1 180px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--spacing-sm)' }}>
+                      <h4 style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Tasa de inflación</h4>
+                      <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900, color: inflation > 0 ? 'var(--danger)' : inflation < 0 ? 'var(--success)' : 'var(--text)' }}>
+                        {inflation > 0 ? '+' : ''}{inflation.toFixed(1)}%
+                      </p>
+                      <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>costo promedio / pedido</p>
+                      <div style={{ display: 'flex', gap: 'var(--spacing-lg)', marginTop: 'var(--spacing-xs)' }}>
+                        <div>
+                          <p style={{ fontSize: 'var(--font-sm)', fontWeight: 700, color: 'var(--primary)' }}>{fmtMoney(p1AvgCost)}</p>
+                          <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{p1Label}</p>
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 'var(--font-sm)', fontWeight: 700, color: 'var(--accent)' }}>{fmtMoney(p2AvgCost)}</p>
+                          <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{p2Label}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-body)' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid var(--border)', background: 'var(--bg-card)' }}>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'left' }}>Métrica</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>{p1Label}</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>{p2Label}</th>
-                        <th style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Cambio</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'left' }}>Métrica</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>{p1Label}</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>{p2Label}</th>
+                        <th scope="col" style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>Cambio</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -908,146 +1213,135 @@ export default function Analytics() {
         </div>
       )}
 
-      {tab === 'profitability' && (
-        <div>
-          {analytics.dishProfitability.length === 0 ? (
-            <div className="empty-state card"><p>No hay platos activos para mostrar.</p></div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-              {analytics.dishProfitability.map((d, i) => {
-                const maxMargin = analytics.dishProfitability[0]?.margin || 1
-                const barPct = Math.round((d.margin / maxMargin) * 100)
-                return (
-                  <div key={d.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-                    <span style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--accent)', minWidth: '40px' }}>#{i + 1}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
-                        <strong style={{ fontSize: 'var(--font-lg)' }}>{d.name}</strong>
-                        <span style={{
-                          fontSize: 'var(--font-lg)', fontWeight: 900,
-                          color: d.margin > 30 ? 'var(--success)' : d.margin > 10 ? 'var(--accent)' : 'var(--danger)'
-                        }}>
-                          {d.margin.toFixed(0)}%
-                        </span>
-                      </div>
-                      <div style={{ height: 'calc(var(--touch-size) * 0.4)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden', marginBottom: 'var(--spacing-xs)' }}>
-                        <div style={{
-                          width: `${Math.max(barPct, 2)}%`, height: '100%',
-                          background: d.margin > 30 ? 'var(--success)' : d.margin > 10 ? 'var(--accent)' : 'var(--danger)',
-                          borderRadius: '100px', transition: 'width 0.5s ease', minWidth: '20px'
-                        }} />
-                      </div>
-                      {d.hasIngredients ? (
-                        <div style={{ display: 'flex', gap: 'var(--spacing-md)', fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                          <span>Precio: <strong>${d.price.toFixed(2)}</strong></span>
-                          <span>Costo: <strong>${d.cost.toFixed(2)}</strong></span>
-                          <span>Ganancia/ud: <strong>${d.profit.toFixed(2)}</strong></span>
-                        </div>
-                      ) : (
-                        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin ingredientes cargados</span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {pdfPreview && (
-        <PdfViewer pdfDoc={pdfPreview.doc} title={pdfPreview.title} onClose={() => setPdfPreview(null)} />
-      )}
     </div>
   )
 }
 
 function StatCard({ label, value, highlight }) {
+  const strVal = String(value || '')
+  const fontSize = strVal.length > 14 ? 'var(--font-lg)' : strVal.length > 10 ? 'calc(var(--font-xl) * 0.8)' : 'var(--font-xl)'
   return (
-    <div className="card" style={{ flex: 1, minWidth: '160px', textAlign: 'center' }}>
-      <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-xs)' }}>{label}</p>
-      <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900, color: highlight || 'var(--text)' }}>{value}</p>
+    <div className="card" style={{ flex: '1 1 0', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+      <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-xs)' }}>{label}</p>
+      <p style={{ fontSize, fontWeight: 900, color: highlight || 'var(--text)', whiteSpace: 'nowrap' }}>{value}</p>
     </div>
   )
 }
 
-function BarChart({ data, labelKey, valueKey, barColor, formatLabel, currentKey, formatValue }) {
+function BarChart({ data, labelKey, valueKey, barColor, formatLabel, currentKey, formatValue, scrollable = true }) {
   const max = Math.max(...data.map(x => x[valueKey] || 0), 1)
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <div style={{
-        display: 'flex', alignItems: 'flex-end', gap: 'calc(var(--spacing-sm) * 0.5)',
-        height: 'calc(var(--font-body) * 5 + 30px)', padding: 'var(--spacing-sm) var(--spacing-xs)',
-        minWidth: `${Math.max(data.length * 55, 200)}px`
-      }}>
-        {data.map((item) => {
-          const val = item[valueKey] || 0
-          const p = val / max
-          const key = item[labelKey]
-          const isCurrent = currentKey === key
-          return (
-            <div key={key} style={{ flex: '0 0 45px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
-              <div style={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-                <div style={{
-                  width: '80%', margin: '0 auto', height: `${Math.max(p * 100, 2)}%`, minHeight: '4px',
-                  background: isCurrent ? 'var(--accent)' : barColor,
-                  borderRadius: '2px 2px 0 0', transition: 'height 0.5s ease'
-                }} />
-              </div>
-              <span style={{ fontSize: '10px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2px' }}>
-                {formatLabel ? formatLabel(key) : key}
-              </span>
+  const inner = (
+    <div style={{
+      display: 'flex', alignItems: 'flex-end', gap: 'calc(var(--spacing-sm) * 0.5)',
+      height: 'calc(var(--font-body) * 5 + 30px)', padding: 'var(--spacing-sm) var(--spacing-xs)',
+      minWidth: `${Math.max(data.length * 95, 200)}px`
+    }}>
+      {data.map((item) => {
+        const val = item[valueKey] || 0
+        const p = val / max
+        const key = item[labelKey]
+        const isCurrent = currentKey === key
+        return (
+          <div key={key} style={{ flex: '0 0 90px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
+            <div style={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+              <div style={{
+                width: '80%', margin: '0 auto', height: `${Math.max(p * 100, 2)}%`, minHeight: '4px',
+                background: isCurrent ? 'var(--accent)' : barColor,
+                borderRadius: '2px 2px 0 0', transition: 'height 0.5s ease'
+              }} />
             </div>
-          )
-        })}
-      </div>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2px' }}>
+              {formatLabel ? formatLabel(key) : key}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
+  return scrollable ? <div style={{ overflowX: 'auto' }}>{inner}</div> : inner
 }
 
-function GroupedBarChart({ data, labelKey, series, formatLabel, currentKey, formatValue }) {
+function GroupedBarChart({ data, labelKey, series, formatLabel, currentKey, formatValue, scrollable = true }) {
   const maxVal = Math.max(...data.flatMap(item => series.map(s => item[s.key] || 0)), 1)
-  return (
-    <div className="card" style={{ overflowX: 'auto' }}>
-      <div style={{
-        display: 'flex', alignItems: 'flex-end', gap: 'var(--spacing-md)',
-        height: 'calc(var(--font-body) * 7 + 50px)', padding: 'var(--spacing-md)',
-        minWidth: `${Math.max(data.length * 120, 300)}px`
-      }}>
-        {data.map((item) => {
-          const key = item[labelKey]
-          const isCurrent = currentKey === key
-          return (
-            <div key={key} style={{ flex: '0 0 100px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
-              <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: '3px' }}>
-                {series.map(s => {
-                  const val = item[s.key] || 0
-                  const pct = val / maxVal * 100
-                  return (
-                    <div key={s.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-                      <span style={{ fontSize: '10px', fontWeight: 700, lineHeight: 1, marginBottom: '2px', whiteSpace: 'nowrap' }}>
-                        {formatValue ? formatValue(val) : val}
-                      </span>
-                      <div style={{
-                        width: '100%', height: `${Math.max(pct, 2)}%`, minHeight: '4px',
-                        background: s.color, borderRadius: '3px 3px 0 0', transition: 'height 0.5s ease',
-                        opacity: isCurrent ? 1 : 0.8
-                      }} />
-                    </div>
-                  )
-                })}
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)' }}>
-                {series.map(s => (
-                  <span key={s.key} style={{ fontSize: '9px', color: s.color, fontWeight: 700 }}>{s.label[0]}</span>
-                ))}
-              </div>
-              <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', fontWeight: isCurrent ? 700 : 400, textAlign: 'center', marginTop: '2px' }}>
-                {formatLabel ? formatLabel(key) : key}{isCurrent ? ' *' : ''}
-              </span>
+  const inner = (
+    <div style={{
+      display: 'flex', alignItems: 'flex-end', gap: 'var(--spacing-md)',
+      height: 'calc(var(--font-body) * 7 + 50px)', padding: 'var(--spacing-md)',
+      minWidth: `${Math.max(data.length * 120, 300)}px`
+    }}>
+      {data.map((item) => {
+        const key = item[labelKey]
+        const isCurrent = currentKey === key
+        return (
+          <div key={key} style={{ flex: '0 0 100px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
+            <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: '3px' }}>
+              {series.map(s => {
+                const val = item[s.key] || 0
+                const pct = val / maxVal * 100
+                return (
+                  <div key={s.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                    <span style={{ fontSize: 'var(--font-sm)', fontWeight: 700, lineHeight: 1, marginBottom: '2px', whiteSpace: 'nowrap' }}>
+                      {formatValue ? formatValue(val) : val}
+                    </span>
+                    <div style={{
+                      width: '100%', height: `${Math.max(pct, 2)}%`, minHeight: '4px',
+                      background: s.color, borderRadius: '3px 3px 0 0', transition: 'height 0.5s ease',
+                      opacity: isCurrent ? 1 : 0.8
+                    }} />
+                  </div>
+                )
+              })}
             </div>
-          )
-        })}
+            <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)' }}>
+              {series.map(s => (
+                <span key={s.key} style={{ fontSize: 'var(--font-xs)', color: s.color, fontWeight: 700 }}>{s.label[0]}</span>
+              ))}
+            </div>
+            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: isCurrent ? 700 : 400, textAlign: 'center', marginTop: '2px' }}>
+              {formatLabel ? formatLabel(key) : key}{isCurrent ? ' *' : ''}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+  return scrollable ? <div className="card" style={{ overflowX: 'auto' }}>{inner}</div> : inner
+}
+
+function PieChart({ data, size = 200, title }) {
+  const total = data.reduce((s, d) => s + d.value, 0)
+  if (total === 0) return null
+  const cx = size / 2, cy = size / 2, r = size / 2 - 8, ir = size / 4
+  let acc = 0
+  const slices = data.map(d => {
+    const pct = d.value / total
+    const startAngle = acc * 2 * Math.PI - Math.PI / 2
+    acc += pct
+    const endAngle = acc * 2 * Math.PI - Math.PI / 2
+    const largeArc = pct > 0.5 ? 1 : 0
+    const x1o = cx + r * Math.cos(startAngle), y1o = cy + r * Math.sin(startAngle)
+    const x2o = cx + r * Math.cos(endAngle), y2o = cy + r * Math.sin(endAngle)
+    const x1i = cx + ir * Math.cos(endAngle), y1i = cy + ir * Math.sin(endAngle)
+    const x2i = cx + ir * Math.cos(startAngle), y2i = cy + ir * Math.sin(startAngle)
+    const path = `M${x1o},${y1o} A${r},${r} 0 ${largeArc} 1 ${x2o},${y2o} L${x1i},${y1i} A${ir},${ir} 0 ${largeArc} 0 ${x2i},${y2i} Z`
+    return { ...d, path, pct }
+  })
+  return (
+    <div className="card" style={{ padding: 'var(--spacing-md)' }}>
+      {title && <h4 style={{ marginBottom: 'var(--spacing-sm)', textAlign: 'center' }}>{title}</h4>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', justifyContent: 'center', flexWrap: 'wrap' }}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} opacity={0.85} />)}
+        </svg>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: 'var(--font-xs)' }}>
+          {slices.map((s, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+              <span style={{ width: '12px', height: '12px', borderRadius: '3px', background: s.color, flexShrink: 0 }} />
+              <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{s.name}</span>
+              <span style={{ fontWeight: 700 }}>{s.pct > 0.05 ? `${(s.pct * 100).toFixed(0)}%` : ''}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

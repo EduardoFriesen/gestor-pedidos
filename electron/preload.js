@@ -36,6 +36,10 @@ contextBridge.exposeInMainWorld('piu', {
   getMonthComparison: () => ipcRenderer.invoke('piu:getMonthComparison'),
   getYearComparison: () => ipcRenderer.invoke('piu:getYearComparison'),
   getWeeklyTrend: () => ipcRenderer.invoke('piu:getWeeklyTrend'),
+  getQuarterlyTrend: () => ipcRenderer.invoke('piu:getQuarterlyTrend'),
+  getOverproductionInRange: (start, end) => ipcRenderer.invoke('piu:getOverproductionInRange', start, end),
+  getWeekOrderCounts: () => ipcRenderer.invoke('piu:getWeekOrderCounts'),
+  getEntityCounts: () => ipcRenderer.invoke('piu:getEntityCounts'),
   getDayOfWeekDistribution: () => ipcRenderer.invoke('piu:getDayOfWeekDistribution'),
   getDishProfitability: () => ipcRenderer.invoke('piu:getDishProfitability'),
   getAnalyticsFiltered: (startDate, endDate) => ipcRenderer.invoke('piu:getAnalyticsFiltered', { startDate, endDate }),
@@ -51,5 +55,13 @@ contextBridge.exposeInMainWorld('piu', {
   getResolvedCost: (ingredientId) => ipcRenderer.invoke('piu:getResolvedCost', { ingredientId }),
   getIngredientCategories: () => ipcRenderer.invoke('piu:getIngredientCategories'),
   getDefaultDeliveryFee: () => ipcRenderer.invoke('piu:getDefaultDeliveryFee'),
-  setDefaultDeliveryFee: (fee) => ipcRenderer.invoke('piu:setDefaultDeliveryFee', { fee })
+  setDefaultDeliveryFee: (fee) => ipcRenderer.invoke('piu:setDefaultDeliveryFee', { fee }),
+  getPriceReview: () => ipcRenderer.invoke('piu:getPriceReview'),
+  markIngredientUpdated: (id) => ipcRenderer.invoke('piu:markIngredientUpdated', { id }),
+  markDishPriceUpdated: (id) => ipcRenderer.invoke('piu:markDishPriceUpdated', { id }),
+  getExportData: () => ipcRenderer.invoke('piu:getExportData'),
+  importData: (newData) => ipcRenderer.invoke('piu:importData', newData),
+  saveFile: ({ content, defaultName, ext }) => ipcRenderer.invoke('piu:saveFile', { content, defaultName, ext }),
+  getSalesForExport: (startDate, endDate) => ipcRenderer.invoke('piu:getSalesForExport', { startDate, endDate }),
+  exportAnalyticsExcel: () => ipcRenderer.invoke('piu:exportAnalyticsExcel')
 })

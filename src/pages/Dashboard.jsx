@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import PdfViewer from '../components/PdfViewer'
+import { generarHojaProduccion, generarListaCompras } from '../utils/pdf'
+import { SkeletonCard } from '../components/Skeleton'
+import ErrorBanner from '../components/ErrorBanner'
+import { useToast } from '../components/ToastProvider'
 
 export default function Dashboard() {
+  const showToast = useToast()
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState(null)
@@ -8,11 +14,27 @@ export default function Dashboard() {
   const [expandedSub, setExpandedSub] = useState(null)
   const [allDishes, setAllDishes] = useState([])
   const [expandedDish, setExpandedDish] = useState(null)
+  const [showSubProducts, setShowSubProducts] = useState(false)
+  const [pdfPreview, setPdfPreview] = useState(null)
+  const [ingredients, setIngredients] = useState([])
+  const [error, setError] = useState(null)
 
-  const load = useCallback(() => {
-    window.piu?.getDashboard().then(d => setData(d || null))
-    window.piu?.getSubProductQuantities().then(setSubProducts)
-    window.piu?.getDishes().then(setAllDishes)
+  const load = useCallback(async () => {
+    try {
+      const [d, sp, ds, ing] = await Promise.all([
+        (window.piu?.getDashboard() || Promise.resolve(null)),
+        (window.piu?.getSubProductQuantities() || Promise.resolve([])),
+        (window.piu?.getDishes() || Promise.resolve([])),
+        (window.piu?.getIngredientsList() || Promise.resolve([]))
+      ])
+      setData(d || null)
+      setSubProducts(sp || [])
+      setAllDishes(ds || [])
+      setIngredients(ing || [])
+      setError(null)
+    } catch (e) {
+      setError('No se pudieron cargar los datos del dashboard.')
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -23,21 +45,41 @@ export default function Dashboard() {
   }
 
   const handleProduce = async (dishId) => {
-    await window.piu?.addProduction(dishId, 1)
-    refresh()
+    try {
+      await window.piu?.addProduction(dishId, 1)
+      refresh()
+      showToast('Producción registrada', 'success')
+    } catch (e) {
+      setError('No se pudo registrar la producción.')
+    }
   }
 
   const handleUndo = async (dishId) => {
-    await window.piu?.undoProduction(dishId)
-    refresh()
+    try {
+      await window.piu?.undoProduction(dishId)
+      refresh()
+      showToast('Producción deshecha', 'success')
+    } catch (e) {
+      setError('No se pudo deshacer la producción.')
+    }
   }
 
   const handleCompleteDish = async (dishId) => {
-    await window.piu?.completeDishProduction(dishId)
-    refresh()
+    try {
+      await window.piu?.completeDishProduction(dishId)
+      refresh()
+      showToast('Producción completada', 'success')
+    } catch (e) {
+      setError('No se pudo completar la producción del plato.')
+    }
   }
 
-  if (!data) return <div style={{ padding: 'var(--spacing-xl)', textAlign: 'center', fontSize: 'var(--font-lg)' }}>Cargando...</div>
+  if (!data) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)', paddingTop: 'var(--spacing-md)' }}>
+      <div className="skeleton" style={{ height: '2.5em', width: '300px', marginBottom: 'var(--spacing-md)' }} />
+      {[1,2,3,4].map(i => <SkeletonCard key={i} />)}
+    </div>
+  )
 
   const { week, dishes, totals } = data
 
@@ -70,8 +112,35 @@ export default function Dashboard() {
     return `${d}/${m}/${y}`
   }
 
+  const formatQty = (value, unit) => {
+    if (value === undefined || value === null) return '—'
+    let v = value
+    let u = unit
+    if (u === 'l' && v < 1) { v = v * 1000; u = 'ml' }
+    else if (u === 'kg' && v < 1) { v = v * 1000; u = 'g' }
+    const rounded = Math.round(v * 100) / 100
+    return `${rounded} ${u}`
+  }
+
+  const handlePrintProduction = () => {
+    if (!data) return
+    const doc = generarHojaProduccion(data)
+    setPdfPreview({ doc, title: `produccion-piu-${data.week.week_start}` })
+  }
+
+  const handlePrintShopping = () => {
+    if (ingredients.length === 0) {
+      showToast('No hay ingredientes configurados en los platos para generar la lista de compras.', 'info')
+      return
+    }
+    const doc = generarListaCompras(ingredients)
+    setPdfPreview({ doc, title: `compras-piu-${data?.week?.week_start || 'semana'}` })
+  }
+
   return (
     <div>
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -84,9 +153,14 @@ export default function Dashboard() {
             {formatDate(week.week_start)} - {formatDate(week.week_end)}
           </p>
         </div>
-        <button className="btn btn-outline btn-sm" onClick={load} aria-label="Actualizar datos">
-          ↻ Actualizar
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
+          <button className="btn btn-outline btn-sm" onClick={handlePrintShopping}>
+            Lista Compras
+          </button>
+          <button className="btn btn-outline btn-sm" onClick={handlePrintProduction}>
+            Hoja Producción
+          </button>
+        </div>
       </div>
 
       <div style={{ marginBottom: 'var(--spacing-md)' }}>
@@ -116,7 +190,7 @@ export default function Dashboard() {
           </button>
           {categoryList.map(cat => {
             const active = selectedCategory === cat.name
-            const pct = cat.total > 0 ? Math.round((cat.produced / cat.total) * 100) : 0
+            const pct = cat.total > 0 ? Math.min(100, Math.round((cat.produced / cat.total) * 100)) : 0
             return (
               <button
                 key={cat.name}
@@ -160,6 +234,33 @@ export default function Dashboard() {
         </div>
       )}
 
+      <div style={{
+        display: 'flex',
+        gap: 'var(--spacing-md)',
+        marginBottom: 'var(--spacing-md)',
+        flexWrap: 'wrap'
+      }}>
+        <div className="card" style={{ flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Pedidos</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{totals.total}</p>
+        </div>
+        <div className="card" style={{ flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Producido</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{totals.produced}</p>
+        </div>
+        <div className="card" style={{
+          flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)',
+          borderColor: totals.overproduction > 0 ? 'var(--danger)' : undefined
+        }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: totals.overproduction > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+            {totals.overproduction > 0 ? 'Sobreproducción' : 'Sobreproducción'}
+          </p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: totals.overproduction > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+            {totals.overproduction}
+          </p>
+        </div>
+      </div>
+
       {subProducts.length > 0 && (
         <div style={{
           marginBottom: 'var(--spacing-md)',
@@ -167,68 +268,81 @@ export default function Dashboard() {
           background: 'var(--primary-light)',
           borderRadius: 'var(--radius)'
         }}>
-          <div style={{ fontSize: 'var(--font-sm)', fontWeight: 600, marginBottom: 'var(--spacing-sm)' }}>
-            📦 Sub-productos
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-            {subProducts.map(sp => (
-              <div
-                key={sp.id}
-                onClick={() => setExpandedSub(expandedSub === sp.id ? null : sp.id)}
-                style={{
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius)',
-                  padding: 'var(--spacing-sm) var(--spacing-md)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s'
-                }}
-              >
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  fontWeight: 600,
-                  fontSize: 'var(--font-body)'
-                }}>
-                  <span>{sp.total} {sp.unit} — {sp.name}</span>
-                  <span style={{
-                    fontSize: 'var(--font-sm)',
-                    color: 'var(--text-secondary)',
-                    transform: expandedSub === sp.id ? 'rotate(180deg)' : 'none',
-                    transition: 'transform 0.15s'
-                  }}>▾</span>
-                </div>
-                {expandedSub === sp.id && (
+          <button
+            type="button"
+            onClick={() => setShowSubProducts(!showSubProducts)}
+            aria-expanded={showSubProducts}
+            style={{ display: 'block', fontSize: 'var(--font-sm)', fontWeight: 600, marginBottom: 'var(--spacing-sm)', cursor: 'pointer', userSelect: 'none', background: 'none', border: 'none', color: 'inherit', padding: 0, width: '100%', textAlign: 'left' }}
+          >
+            {showSubProducts ? '▾' : '▸'} Sub-productos
+          </button>
+          {showSubProducts && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+              {subProducts.map(sp => (
+                <button
+                  type="button"
+                  key={sp.id}
+                  onClick={() => setExpandedSub(expandedSub === sp.id ? null : sp.id)}
+                  aria-expanded={expandedSub === sp.id}
+                  style={{
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)',
+                    padding: 'var(--spacing-sm) var(--spacing-md)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                    color: 'inherit',
+                    fontSize: 'inherit',
+                    fontFamily: 'inherit',
+                    textAlign: 'left',
+                    width: '100%',
+                    display: 'block'
+                  }}
+                >
                   <div style={{
-                    marginTop: 'var(--spacing-sm)',
-                    paddingTop: 'var(--spacing-sm)',
-                    borderTop: '1px solid var(--border)',
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: 'var(--spacing-xs)',
-                    fontSize: 'var(--font-sm)'
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontWeight: 600,
+                    fontSize: 'var(--font-body)'
                   }}>
-                    {sp.breakdown.map(b => (
-                      <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>{b.name}</span>
-                        <span style={{ fontWeight: 600 }}>
-                          {(b.total).toFixed(3).replace(/\.?0+$/, '')} {b.unit}
-                        </span>
-                      </div>
-                    ))}
+                    <span>{formatQty(sp.total, sp.unit)} — {sp.name}</span>
+                    <span style={{
+                      fontSize: 'var(--font-sm)',
+                      color: 'var(--text-secondary)',
+                      transform: expandedSub === sp.id ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.15s'
+                    }}>▾</span>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
+                  {expandedSub === sp.id && (
+                    <div style={{
+                      marginTop: 'var(--spacing-sm)',
+                      paddingTop: 'var(--spacing-sm)',
+                      borderTop: '1px solid var(--border)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--spacing-xs)',
+                      fontSize: 'var(--font-sm)'
+                    }}>
+                      {sp.breakdown.map(b => (
+                        <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{b.name}</span>
+                          <span style={{ fontWeight: 600 }}>{formatQty(b.total, b.unit)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {sortedDishes.length === 0 ? (
         <div className="empty-state card">
           <h3>{search || selectedCategory ? 'Sin resultados' : 'No hay pedidos para esta semana'}</h3>
-          <p>{search ? 'Probá con otro término de búsqueda.' : selectedCategory ? 'No hay platos en esta categoría con pedidos.' : 'Los pedidos aparecen acá cuando se registran en la sección Pedidos.'}</p>
+          <p>{search ? 'Probá con otro término de búsqueda.' : selectedCategory ? 'No hay platos en esta categoría con pedidos.' : 'Andá a la sección Pedidos para registrar órdenes. La producción se organiza automáticamente acá.'}</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
@@ -272,12 +386,14 @@ export default function Dashboard() {
                 }}>
                     <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                      <h3
-                        style={{ margin: 0, fontSize: 'var(--font-lg)', cursor: 'pointer', userSelect: 'none' }}
+                      <button
+                        type="button"
+                        style={{ margin: 0, fontSize: 'var(--font-lg)', cursor: 'pointer', userSelect: 'none', background: 'none', border: 'none', color: 'inherit', fontWeight: 700, padding: 0, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
                         onClick={() => setExpandedDish(expandedDish === dish.id ? null : dish.id)}
+                        aria-expanded={expandedDish === dish.id}
                       >
                         {expandedDish === dish.id ? '▾' : '▸'} {dish.name}
-                      </h3>
+                      </button>
                       <span className={`badge ${done ? 'badge-success' : dish.total_produced > 0 ? 'badge-warning' : dish.total_ordered > 0 ? 'badge-warning' : ''}`}
                         style={{
                           background: statusBg,
@@ -287,6 +403,16 @@ export default function Dashboard() {
                         }}>
                         {statusText}
                       </span>
+                      {dish.overproduction > 0 && (
+                        <span className="badge" style={{
+                          background: 'var(--danger-light)',
+                          color: 'var(--danger)',
+                          fontSize: 'var(--font-sm)',
+                          padding: '4px var(--spacing-sm)'
+                        }}>
+                          Sobró {dish.overproduction}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -374,6 +500,9 @@ export default function Dashboard() {
                   {remaining > 0 && (
                     <span>Faltan: <strong style={{ color: 'var(--accent)' }}>{remaining}</strong></span>
                   )}
+                  {dish.overproduction > 0 && (
+                    <span>Sobró: <strong style={{ color: 'var(--danger)' }}>{dish.overproduction}</strong></span>
+                  )}
                 </div>
 
                 {expandedDish === dish.id && (() => {
@@ -406,7 +535,7 @@ export default function Dashboard() {
                               {ing.subIngredients.map((si, j) => (
                                 <div key={j} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-xs)' }}>
                                   <span>└ {si.name}</span>
-                                  <span>{(si.quantity * ing.quantity).toFixed(3)} {si.unit}</span>
+                                  <span>{formatQty(si.quantity * ing.quantity, si.unit)}</span>
                                 </div>
                               ))}
                             </div>
@@ -420,6 +549,9 @@ export default function Dashboard() {
             )
           })}
         </div>
+      )}
+      {pdfPreview && (
+        <PdfViewer pdfDoc={pdfPreview.doc} title={pdfPreview.title} onClose={() => setPdfPreview(null)} />
       )}
     </div>
   )

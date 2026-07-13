@@ -59,9 +59,25 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-button:focus-visible {
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
   outline: 4px solid var(--primary);
   outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+[tabindex]:focus:not(:focus-visible) {
+  outline: none;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-light);
 }
 
 input, select, textarea {
@@ -160,6 +176,100 @@ textarea {
 .btn-ghost:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.btn-icon-edit {
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-icon-edit:hover {
+  background: var(--accent);
+  color: #FFFFFF;
+}
+
+.btn-icon-delete {
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1.5px solid var(--danger);
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-icon-delete:hover {
+  background: var(--danger);
+  color: #FFFFFF;
+}
+
+.btn-status-assemble {
+  background: var(--success-light);
+  color: var(--success);
+  border: 1.5px solid var(--success);
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-status-assemble:hover {
+  background: var(--success);
+  color: #FFFFFF;
+}
+
+.btn-status-deliver {
+  background: var(--success);
+  color: #FFFFFF;
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-status-deliver:hover {
+  filter: brightness(0.9);
+}
+
+.btn-status-undo {
+  background: var(--warning-light);
+  color: var(--warning);
+  border: 1.5px solid var(--warning);
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-status-undo:hover {
+  background: var(--warning);
+  color: #FFFFFF;
+}
+
+.btn-status-reopen {
+  background: var(--warning-light);
+  color: var(--warning);
+  border: 1.5px solid var(--warning);
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-status-reopen:hover {
+  background: var(--warning);
+  color: #FFFFFF;
+}
+
+.btn-icon-action {
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1.5px solid var(--primary);
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-icon-action:hover {
+  background: var(--primary);
+  color: #FFFFFF;
+}
+
+.btn-icon-confirm {
+  background: var(--success-light);
+  color: var(--success);
+  border: 1.5px solid var(--success);
+  border-radius: 100px;
+  padding: 4px var(--spacing-sm);
+}
+.btn-icon-confirm:hover {
+  background: var(--success);
+  color: #FFFFFF;
 }
 
 .btn-sm {
@@ -279,6 +389,18 @@ textarea {
   margin-bottom: var(--spacing-sm);
 }
 
+@keyframes skeleton-shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-hover) 25%, var(--border) 50%, var(--bg-hover) 75%);
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius);
+}
+
 @media print {
   body {
     background: white;
@@ -304,4 +426,26 @@ textarea {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  .tendencias-layout {
+    flex-direction: column !important;
+  }
+  .tendencias-layout > * {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --font-body: 18px;
+    --font-lg: 28px;
+    --font-xl: 36px;
+    --font-sm: 16px;
+    --font-xs: 14px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+  }
 }

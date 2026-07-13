@@ -1,101 +1,130 @@
 import { jsPDF } from 'jspdf'
 
-function calcLabelHeight(items, hasDelivery) {
-  const topGap = 3
-  const nameRow = 4
-  const phoneRow = 3
-  const addrRow = 3
-  const itemStart = 1
-  const itemRow = items.length * 7
-  const deliveryRow = hasDelivery ? 4 : 0
-  const totalRow = 3
-  const idRow = 3
-  const bottomGap = 3
-  return topGap + nameRow + phoneRow + addrRow + itemStart + itemRow + deliveryRow + totalRow + idRow + bottomGap
-}
-
 export function generarEtiquetasDelivery(orders) {
   const doc = new jsPDF('p', 'mm', 'a4')
   const pageWidth = 210
   const pageHeight = 297
-  const margin = 10
-  const cols = 3
-  const labelW = (pageWidth - margin * 2) / cols
-  const rowGap = 2
-  let y = margin
+  const margin = 8
+  const gapX = 0
+  const gapY = 0
+  const cols = 2
+  const labelW = (pageWidth - margin * 2 - gapX) / cols
+  const baseLabelH = (pageHeight - margin * 2 - gapY * 2) / 3
+  const maxNameChars = Math.floor((labelW - 6) / 2.5)
+  const maxAddrChars = Math.floor((labelW - 6) / 2.5)
+  const maxDishChars = Math.floor((labelW - 6) / 2.8)
 
-  for (let i = 0; i < orders.length; i += cols) {
-    const batch = orders.slice(i, i + cols)
-    const rowHeight = Math.max(...batch.map(o => calcLabelHeight(o.items, o.has_delivery)), 30)
+  function neededHeight(order) {
+    const itemsH = order.items ? order.items.length * 9 : 0
+    const deliveryH = order.has_delivery ? 3.5 : 0
+    return 22 + itemsH + deliveryH + 5 + 3
+  }
 
-    if (y + rowHeight > pageHeight - margin) {
-      doc.addPage()
-      y = margin
+  function drawLabel(x, y, w, h, order) {
+    doc.setDrawColor(180)
+    doc.setLineWidth(0.5)
+    doc.rect(x, y, w, h)
+
+    const padX = 4
+    let ty = y + 4
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    const nameStr = `${order.name} ${order.last_name}`
+    doc.text(nameStr.length > maxNameChars ? nameStr.slice(0, maxNameChars - 2) + '…' : nameStr, x + padX, ty)
+
+    ty += 4.5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(`Tel: ${order.phone || '—'}`, x + padX, ty)
+
+    ty += 3.5
+    const addrStr = order.address || '—'
+    doc.text(addrStr.length > maxAddrChars ? addrStr.slice(0, maxAddrChars - 2) + '…' : addrStr, x + padX, ty)
+
+    ty += 5
+    doc.setDrawColor(200)
+    doc.setLineWidth(0.2)
+    doc.line(x + padX, ty, x + w - padX, ty)
+    ty += 3
+
+    let orderTotal = 0
+    for (const item of order.items) {
+      const unitPrice = item.price || 0
+      const subTotal = unitPrice * item.quantity
+      orderTotal += subTotal
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(12)
+      const nameParts = (item.dish_name || '').split(' ')
+      const shortName = nameParts.length > 1
+        ? `${nameParts[0].slice(0, 3)} ${nameParts.slice(1).join(' ')}`
+        : nameParts[0]
+      const dishLine = `${shortName} ×${item.quantity}`
+      doc.text(dishLine.length > maxDishChars ? dishLine.slice(0, maxDishChars - 2) + '…' : dishLine, x + padX, ty)
+
+      ty += 4.5
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.text(`$${unitPrice.toFixed(0)}/u`, x + padX, ty)
+      doc.text(`$${subTotal.toFixed(0)}`, x + w - padX - 12, ty)
+
+      ty += 4.5
     }
 
-    const rowLabelH = rowHeight
-
-    batch.forEach((order, colIdx) => {
-      const x = margin + colIdx * labelW
-      const maxChars = Math.floor((labelW - 6) / 2.2)
-
-      doc.setDrawColor(200)
-      doc.setLineWidth(0.5)
-      doc.rect(x, y, labelW, rowLabelH)
-
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(8)
-      const nameStr = `${order.name} ${order.last_name}`
-      doc.text(nameStr.length > maxChars + 5 ? nameStr.slice(0, maxChars + 2) + '...' : nameStr, x + 2, y + 4)
-
+    if (order.has_delivery) {
+      orderTotal += order.delivery_fee || 0
       doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
-      const phoneStr = `Tel: ${order.phone}`
-      doc.text(phoneStr, x + 2, y + 7.5)
+      doc.setFontSize(9)
+      doc.text(`Envío: $${(order.delivery_fee || 0).toFixed(0)}`, x + padX, ty)
+      ty += 3.5
+    }
 
-      const addrMax = Math.floor((labelW - 6) / 2.2)
-      const addrStr = `${order.address}`.length > addrMax ? `${order.address.slice(0, addrMax - 3)}...` : order.address
-      doc.text(addrStr, x + 2, y + 10.5)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text(`Total: $${orderTotal.toFixed(0)}`, x + padX, y + h - 5)
 
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(7)
-      let ty = y + 15
-      let orderTotal = 0
-      for (const item of order.items) {
-        const line = `${item.dish_name} x${item.quantity}`
-        const lineMax = Math.floor((labelW - 6) / 3)
-        const truncated = line.length > lineMax ? line.slice(0, lineMax - 3) + '...' : line
-        doc.text(truncated, x + 2, ty)
-        const unitPrice = item.price || 0
-        const subTotal = unitPrice * item.quantity
-        orderTotal += subTotal
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(5.5)
-        doc.text(`$${unitPrice.toFixed(0)}/u`, x + 2, ty + 3.5)
-        doc.text(`$${subTotal.toFixed(0)}`, x + labelW - 12, ty + 3.5)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(7)
-        ty += 7
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.text(`#${order.id}`, x + w - padX - 8, y + h - 5)
+  }
+
+  const rows = []
+  for (let i = 0; i < orders.length; i += cols) {
+    const rowOrders = orders.slice(i, i + cols)
+    const entries = rowOrders.map((order, idx) => ({
+      order,
+      h: Math.max(baseLabelH, neededHeight(order)),
+      col: idx
+    }))
+    rows.push({ entries, h: Math.max(...entries.map(e => e.h)) })
+  }
+
+  const pages = []
+  let currentPage = []
+  let usedH = 0
+
+  for (const row of rows) {
+    if (currentPage.length > 0 && usedH + row.h + gapY > pageHeight - margin * 2) {
+      pages.push(currentPage)
+      currentPage = []
+      usedH = 0
+    }
+    currentPage.push(row)
+    usedH += row.h + gapY
+  }
+  if (currentPage.length > 0) pages.push(currentPage)
+
+  for (let p = 0; p < pages.length; p++) {
+    if (p > 0) doc.addPage()
+    let y = margin
+    for (const row of pages[p]) {
+      for (const e of row.entries) {
+        const x = margin + e.col * (labelW + gapX)
+        drawLabel(x, y, labelW, row.h, e.order)
       }
-
-      if (order.has_delivery) {
-        orderTotal += order.delivery_fee || 0
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(6)
-        doc.text(`Envío: $${(order.delivery_fee || 0).toFixed(0)}`, x + 2, ty)
-        ty += 4
-      }
-
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(6.5)
-      doc.text(`Total: $${orderTotal.toFixed(0)}`, x + 2, ty)
-
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6)
-      doc.text(`#${order.id}`, x + labelW - 8, y + rowLabelH - 2)
-    })
-
-    y += rowHeight + rowGap
+      y += row.h + gapY
+    }
   }
 
   return doc

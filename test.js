@@ -125,8 +125,8 @@ function testDeliveryFeeDoubleCount(store, { dishIds, ingNames }) {
   const dish3Price = 3200
   const fee1 = 500
   const fee3 = 700
-  const expectedRevenue = (dish1Price * 2 + dish2Price * 1) + fee1 + (dish1Price * 1 + dish3Price * 2) + fee3 + (dish3Price * 3)
-  const expectedCost = (getDishCost(store, dishIds['Muzzarella']) * 3 + getDishCost(store, dishIds['Lomito completo']) * 1 + getDishCost(store, dishIds['Empanada carne']) * 5) + fee1 + fee3
+  const expectedRevenue = (dish1Price * 2 + dish2Price * 1) + (dish1Price * 1 + dish3Price * 2) + (dish3Price * 3)
+  const expectedCost = (getDishCost(store, dishIds['Muzzarella']) * 3 + getDishCost(store, dishIds['Lomito completo']) * 1 + getDishCost(store, dishIds['Empanada carne']) * 5)
 
   const tolerance = 0.01
   const revOk = Math.abs((analytics.revenue || 0) - expectedRevenue) < tolerance
@@ -159,17 +159,10 @@ function testOrphanedClientDelete(store, { clientIds }) {
   console.log('\n🔴 TEST 14: Delete client with existing orders')
   const beforeClients = store.getClients().length
   const beforeOrders = store.getOrders().length
-  store.deleteClient(clientIds[0])
-  const afterOrders = store.getOrders().length
+  const res = store.deleteClient(clientIds[0])
+  assert(!res.success, 'Delete client with orders is rejected', `success=${res.success} reason=${res.reason}`, 'high')
   const afterClients = store.getClients().length
-  assert(afterClients === beforeClients - 1, 'Clients decreased by 1',
-    `before=${beforeClients} after=${afterClients}`, 'high')
-  assert(afterOrders === beforeOrders, 'Orders not deleted when client is deleted',
-    `Orders before: ${beforeOrders}, after: ${afterOrders}`, 'high')
-  const orders = store.getOrders()
-  const orphan = orders.find(o => o.client_name === '—')
-  assert(orphan, 'Orphan order shows "—" as client name after client deleted',
-    orphan ? `Order ${orphan.id} client_name="${orphan.client_name}"` : 'No orphan found')
+  assert(afterClients === beforeClients, 'Client count unchanged after rejected delete', `before=${beforeClients} after=${afterClients}`, 'high')
 }
 
 function testOrphanedIngredientDelete(store, { dishIds, ingNames }) {
@@ -193,12 +186,8 @@ function testNegativeQuantity(store, { weekId, dishIds, clientIds }) {
   })
   const after = store.getOrders().length
   log(`     createOrder returned: ${JSON.stringify(r)}`)
-  assert(r.success, 'Order with negative qty was created', `success=${r.success}`, 'high')
-  const newOrder = store.getOrders().find(o => o.id === r.id)
-  if (newOrder) {
-    const item = newOrder.items.find(i => i.dish_id === dishIds['Muzzarella'])
-    assert(item && item.quantity === 0, 'Negative qty clamped to 0', item ? `qty=${item.quantity}` : 'item not found', 'high')
-  }
+  assert(!r.success, 'Order with negative qty was rejected', `success=${r.success}`, 'high')
+  assert(after === before, 'No order created for negative quantity', `before=${before} after=${after}`, 'high')
 }
 
 function testNegativePrice(store) {
@@ -223,11 +212,10 @@ function testUndoRemovesAll(store, { dishIds }) {
   }
 }
 
-function testEmptyClientName(store) {
+function testEmptyClientName(store, { weekId, dishIds }) {
   console.log('\n🟡 TEST: Empty client name in getOrders')
   const c = store.createClient({ name: '', last_name: '', phone: '', address: '' })
-  const w = store.getCurrentWeek()
-  store.createOrder({ clientId: c.id, weekId: w.id, items: [], notes: '' })
+  store.createOrder({ clientId: c.id, weekId, items: [{ dishId: dishIds[Object.keys(dishIds)[0]], quantity: 1 }], notes: '' })
   const orders = store.getOrders()
   const blank = orders.find(o => o.client_id === c.id)
   assert(blank, 'Order with blank client exists', JSON.stringify(blank))
@@ -573,7 +561,7 @@ function main() {
   testNegativeQuantity(store, seed)
   testNegativePrice(store)
   testUndoRemovesAll(store, seed)
-  testEmptyClientName(store)
+  testEmptyClientName(store, seed)
   testDeliveryFeeZero(store, seed)
   testGetDishesMutation(store)
   testProgressBarAtZero(store)

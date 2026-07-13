@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import Modal from '../components/Modal'
+import ErrorBanner from '../components/ErrorBanner'
 import { getCompatibleUnits, convertValue } from '../utils/units'
+import { useToast } from '../components/ToastProvider'
 
 export default function Menu() {
+  const showToast = useToast()
   const [dishes, setDishes] = useState([])
   const [allIngredients, setAllIngredients] = useState([])
   const [search, setSearch] = useState('')
@@ -13,13 +16,36 @@ export default function Menu() {
     ingredientRows: [{ ingredientId: null, quantity: 0, displayUnit: null }],
     is_active: true
   })
+  const [error, setError] = useState(null)
+  const [dishSort, setDishSort] = useState('name')
+  const [dishSortDir, setDishSortDir] = useState('asc')
+  const [priceReview, setPriceReview] = useState(null)
+  const [dismissedStale, setDismissedStale] = useState(false)
+  const [dismissedPriceReview, setDismissedPriceReview] = useState(false)
 
-  const load = useCallback(() => {
-    window.piu?.getDishes().then(setDishes)
-    window.piu?.getIngredients().then(setAllIngredients)
+  const load = useCallback(async () => {
+    try {
+      const [d, ing, pr] = await Promise.all([
+        (window.piu?.getDishes() || Promise.resolve([])),
+        (window.piu?.getIngredients() || Promise.resolve([])),
+        (window.piu?.getPriceReview() || Promise.resolve(null))
+      ])
+      setDishes(d || [])
+      setAllIngredients(ing || [])
+      setPriceReview(pr)
+      setError(null)
+    } catch (e) {
+      setError('No se pudieron cargar los platos.')
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const handleMarkDishUpdated = async (id) => {
+    if (!window.piu?.markDishPriceUpdated) return
+    await window.piu.markDishPriceUpdated(id)
+    load()
+  }
 
   const openNew = () => {
     setEditing(null)
@@ -60,8 +86,16 @@ export default function Menu() {
     setForm(f => {
       const rows = [...f.ingredientRows]
       if (field === 'ingredientId') {
+        const alreadyUsed = rows.some((r, i) => i !== index && r.ingredientId === value)
+        if (alreadyUsed && value) {
+          showToast('Ese ingrediente ya está cargado en otra fila.', 'info')
+          return f
+        }
         const ing = allIngredients.find(i => i.id === value)
         rows[index] = { ingredientId: value, quantity: rows[index].quantity, displayUnit: ing?.unit || null }
+        if (value && index === rows.length - 1) {
+          rows.push({ ingredientId: null, quantity: 0, displayUnit: null })
+        }
       } else {
         rows[index] = { ...rows[index], [field]: value }
       }
@@ -106,19 +140,32 @@ export default function Menu() {
         }),
       is_active: form.is_active
     }
-    if (editing) {
-      await window.piu?.updateDish({ id: editing.id, ...data })
-    } else {
-      await window.piu?.createDish(data)
+    try {
+      if (editing) {
+        await window.piu?.updateDish({ id: editing.id, ...data })
+      } else {
+        await window.piu?.createDish(data)
+      }
+      setShowModal(false)
+      load()
+      showToast('Plato guardado', 'success')
+    } catch (e) {
+      setError('No se pudo guardar el plato.')
     }
-    setShowModal(false)
-    load()
   }
 
   const handleDelete = async (id) => {
-    if (confirm('¿Eliminar este plato?')) {
-      await window.piu?.deleteDish(id)
+    if (!confirm('¿Eliminar este plato?')) return
+    try {
+      const res = await window.piu?.deleteDish(id)
+      if (res && !res.success && res.reason === 'has_orders') {
+        showToast('No se puede eliminar: el plato tiene pedidos asociados.', 'error')
+        return
+      }
       load()
+      showToast('Plato eliminado', 'success')
+    } catch (e) {
+      setError('No se pudo eliminar el plato.')
     }
   }
 
@@ -126,9 +173,22 @@ export default function Menu() {
   const activeIngredients = allIngredients.filter(i => i.is_active)
 
   const q = search.toLowerCase()
-  const filteredDishes = dishes.filter(d =>
-    !q || (d.name || '').toLowerCase().includes(q) || (d.category || '').toLowerCase().includes(q)
-  )
+  const filteredDishes = dishes
+    .filter(d =>
+      !q || (d.name || '').toLowerCase().includes(q) || (d.category || '').toLowerCase().includes(q)
+    )
+    .sort((a, b) => {
+      const dir = dishSortDir === 'asc' ? 1 : -1
+      if (dishSort === 'name') return a.name.localeCompare(b.name) * dir
+      if (dishSort === 'price') return ((b.price || 0) - (a.price || 0)) * dir
+      if (dishSort === 'cost') return ((b.computedCost || 0) - (a.computedCost || 0)) * dir
+      if (dishSort === 'margin') {
+        const aP = (a.price || 0) - (a.computedCost || 0)
+        const bP = (b.price || 0) - (b.computedCost || 0)
+        return (bP - aP) * dir
+      }
+      return 0
+    })
 
   return (
     <div>
@@ -139,12 +199,32 @@ export default function Menu() {
         marginBottom: 'var(--spacing-lg)'
       }}>
         <h2>Menú</h2>
-        <button className="btn btn-primary btn-lg" onClick={openNew}>
-          + Nuevo Plato
+        <button className="btn btn-primary" onClick={openNew} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
+          + Plato
         </button>
       </div>
 
-      <div style={{ marginBottom: 'var(--spacing-md)' }}>
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
+      <div style={{
+        display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)',
+        flexWrap: 'wrap'
+      }}>
+        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Activos</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>{dishes.filter(d => d.is_active).length}</p>
+        </div>
+        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Inactivos</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--text-secondary)' }}>{dishes.filter(d => !d.is_active).length}</p>
+        </div>
+        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Total</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishes.length}</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           type="text"
           placeholder="Buscar por plato o categoría..."
@@ -152,14 +232,113 @@ export default function Menu() {
           onChange={e => setSearch(e.target.value)}
           key="search-menu"
           aria-label="Buscar plato"
-          style={{ width: '100%', maxWidth: '400px' }}
+          style={{ flex: '1', minWidth: '200px', maxWidth: '400px' }}
         />
+        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Orden:</span>
+        {[
+          { id: 'name', label: 'Nombre' },
+          { id: 'price', label: 'Precio' },
+          { id: 'cost', label: 'Costo' },
+          { id: 'margin', label: 'Ganancia' }
+        ].map(s => (
+          <button
+            key={s.id}
+            className={dishSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+            onClick={() => {
+              if (dishSort === s.id) {
+                setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')
+              } else {
+                setDishSort(s.id)
+                setDishSortDir(s.id === 'name' ? 'asc' : 'desc')
+              }
+            }}
+            style={{ fontSize: 'var(--font-sm)' }}
+          >
+            {s.label}
+          </button>
+        ))}
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+          style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
+          aria-label="Cambiar dirección de orden"
+        >
+          {dishSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+        </button>
       </div>
+
+      {priceReview && !dismissedStale && (() => {
+        const staleCount = priceReview.ingredients.filter(i => i.isStale).length
+        if (!staleCount) return null
+        const threshold = parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)
+        return (
+          <div style={{
+            background: 'var(--warning-light)',
+            border: '1.5px solid var(--warning)',
+            borderRadius: 'var(--radius)',
+            padding: 'var(--spacing-sm) var(--spacing-md)',
+            marginBottom: 'var(--spacing-md)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--spacing-md)'
+          }}>
+            <span style={{ fontWeight: 600, color: 'var(--warning)' }}>
+              Hay ingredientes desactualizados. Actualizá sus precios en la sección Ingredientes antes de revisar los platos.
+              <span style={{ fontWeight: 400, marginLeft: '8px' }}>
+                ({staleCount} hace más de {threshold} días)
+              </span>
+            </span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setDismissedStale(true)} aria-label="Descartar">✕</button>
+          </div>
+        )
+      })()}
+
+      {priceReview && !dismissedPriceReview && priceReview.ingredients.filter(i => i.isStale).length === 0 && priceReview.dishPrices.length > 0 && (
+        <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 'var(--spacing-sm)'
+          }}>
+            <h3 style={{ margin: 0 }}>Revisión de precios</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => setDismissedPriceReview(true)} aria-label="Cerrar">✕</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+            {priceReview.dishPrices.sort((a, b) => a.margin - b.margin).slice(0, 20).map(dp => (
+              <div key={dp.id} style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 'var(--spacing-md)',
+                padding: 'var(--spacing-xs) var(--spacing-sm)',
+                borderRadius: 'var(--radius)',
+                background: dp.margin < 20 ? 'var(--warning-light)' : dp.margin < 40 ? 'var(--bg-hover)' : 'var(--success-light)'
+              }}>
+                <span style={{ fontWeight: 600, flex: 1 }}>{dp.name}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  Costo: <strong>${dp.computedCost.toFixed(2)}</strong>
+                </span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  Precio: <strong>${dp.price.toFixed(2)}</strong>
+                </span>
+                <span style={{
+                  fontWeight: 700,
+                  color: dp.margin >= 40 ? 'var(--success)' : dp.margin >= 20 ? 'var(--accent)' : 'var(--danger)'
+                }}>
+                  {dp.margin.toFixed(0)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {filteredDishes.length === 0 ? (
         <div className="empty-state card">
           <h3>{search ? 'Sin resultados' : 'No hay platos en el menú'}</h3>
-          <p>{search ? 'Probá con otro término de búsqueda.' : 'Agregá platos para empezar a recibir pedidos.'}</p>
+          <p>{search ? 'Probá con otro término de búsqueda.' : 'Usá "+ Nuevo Plato" para crear tu primer plato con ingredientes y precios.'}</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
@@ -242,8 +421,11 @@ export default function Menu() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => openEdit(dish)} aria-label="Editar plato">✏️</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(dish.id)} aria-label="Eliminar plato">🗑️</button>
+                <button className="btn btn-sm btn-icon-confirm" onClick={() => handleMarkDishUpdated(dish.id)}>
+                  Actualizado
+                </button>
+                <button className="btn btn-sm btn-icon-edit" onClick={() => openEdit(dish)} aria-label="Editar plato">Editar</button>
+                <button className="btn btn-sm btn-icon-delete" onClick={() => handleDelete(dish.id)} aria-label="Eliminar plato">Eliminar</button>
               </div>
             </div>
           ))}
@@ -256,8 +438,9 @@ export default function Menu() {
         title={editing ? 'Editar Plato' : 'Nuevo Plato'}
       >
         <div className="form-group">
-          <label>Nombre del plato</label>
+          <label htmlFor="dish-name">Nombre del plato</label>
           <input
+            id="dish-name"
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             placeholder="Ej: Milanesa napolitana"
@@ -266,8 +449,9 @@ export default function Menu() {
 
         <div className="form-row">
           <div className="form-group">
-            <label>Categoría</label>
+            <label htmlFor="dish-category">Categoría</label>
             <input
+              id="dish-category"
               value={form.category}
               onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
               placeholder="Ej: Principal, Postre"
@@ -278,8 +462,9 @@ export default function Menu() {
             </datalist>
           </div>
           <div className="form-group">
-            <label>Precio ($)</label>
+            <label htmlFor="dish-price">Precio ($)</label>
               <input
+                  id="dish-price"
                   type="text"
                   inputMode="decimal"
                   value={form.price}
@@ -296,7 +481,7 @@ export default function Menu() {
             justifyContent: 'space-between',
             marginBottom: 'var(--spacing-sm)'
           }}>
-            <label>Ingredientes</label>
+            <label htmlFor="add-ingredient-btn">Ingredientes</label>
             <button className="btn btn-outline btn-sm" onClick={addRow}>
               + Agregar ingrediente
             </button>
@@ -405,8 +590,9 @@ export default function Menu() {
         )}
 
         <div className="form-group">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+          <label htmlFor="dish-active" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
             <input
+              id="dish-active"
               type="checkbox"
               checked={form.is_active}
               onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}

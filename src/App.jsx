@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
+import ToastProvider from './components/ToastProvider'
 import Dashboard from './pages/Dashboard'
 import Orders from './pages/Orders'
 import Menu from './pages/Menu'
@@ -12,11 +13,13 @@ import Ingredients from './pages/Ingredients'
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('piu-theme') || 'claro')
   const [macroMode, setMacroMode] = useState(() => localStorage.getItem('piu-macro') === 'true')
+  const [fontSize, setFontSize] = useState(() => localStorage.getItem('piu-font-size') || 'medium')
 
   useEffect(() => {
-    document.documentElement.className = `theme-${theme}${macroMode ? ' macro-mode' : ''}`
+    const fontClass = fontSize === 'small' ? 'font-small' : fontSize === 'large' ? 'font-large' : ''
+    document.documentElement.className = `theme-${theme}${macroMode ? ' macro-mode' : ''}${fontClass ? ' ' + fontClass : ''}`
     localStorage.setItem('piu-theme', theme)
-  }, [theme])
+  }, [theme, macroMode, fontSize])
 
   useEffect(() => {
     document.documentElement.classList.toggle('macro-mode', macroMode)
@@ -25,15 +28,17 @@ export default function App() {
 
   return (
     <Layout theme={theme} setTheme={setTheme} macroMode={macroMode} setMacroMode={setMacroMode}>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/orders" element={<Orders />} />
-        <Route path="/menu" element={<Menu />} />
-        <Route path="/clients" element={<Clients />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/ingredients" element={<Ingredients />} />
-        <Route path="/settings" element={<Settings theme={theme} setTheme={setTheme} macroMode={macroMode} setMacroMode={setMacroMode} />} />
-      </Routes>
+      <ToastProvider>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/orders" element={<Orders />} />
+          <Route path="/menu" element={<Menu />} />
+          <Route path="/clients" element={<Clients />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/ingredients" element={<Ingredients />} />
+          <Route path="/settings" element={<Settings theme={theme} setTheme={setTheme} macroMode={macroMode} setMacroMode={setMacroMode} fontSize={fontSize} setFontSize={setFontSize} />} />
+        </Routes>
+      </ToastProvider>
     </Layout>
   )
 }

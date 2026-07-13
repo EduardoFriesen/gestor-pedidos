@@ -1,28 +1,47 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import Modal from '../components/Modal'
+import ErrorBanner from '../components/ErrorBanner'
 import { getCompatibleUnits, convertValue } from '../utils/units'
+import { useToast } from '../components/ToastProvider'
 
 export default function Ingredients() {
+  const showToast = useToast()
   const [ingredients, setIngredients] = useState([])
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', unit: 'uni', cost: '', category: '', is_active: true, subIngredients: [], batchYield: 1 })
+  const [form, setForm] = useState({ name: '', unit: 'uni', cost: '', category: '', is_active: true, subIngredients: [], batchYield: 1, package_qty: '', package_price: '' })
+  const [error, setError] = useState(null)
+  const [priceReview, setPriceReview] = useState(null)
+  const [dismissedStale, setDismissedStale] = useState(false)
 
-  const load = useCallback(() => {
-    window.piu?.getIngredients().then(setIngredients)
+  const load = useCallback(async () => {
+    try {
+      const [ing, pr] = await Promise.all([
+        window.piu?.getIngredients() || Promise.resolve([]),
+        window.piu?.getPriceReview() || Promise.resolve(null)
+      ])
+      setIngredients(ing || [])
+      setPriceReview(pr)
+      setError(null)
+    } catch (e) {
+      setError('No se pudieron cargar los ingredientes.')
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  const getResolvedCostDisplay = async (ingId) => {
-    if (!window.piu?.getResolvedCost) return null
-    return window.piu.getResolvedCost(ingId)
+  const dismissStaleBanner = () => setDismissedStale(true)
+
+  const handleMarkUpdated = async (id) => {
+    if (!window.piu?.markIngredientUpdated) return
+    await window.piu.markIngredientUpdated(id)
+    load()
   }
 
   const openNew = () => {
     setEditing(null)
-    setForm({ name: '', unit: 'uni', cost: '', category: '', is_active: true, subIngredients: [{ ingredientId: null, quantity: 0, displayUnit: null }], batchYield: 1 })
+    setForm({ name: '', unit: 'uni', cost: '', category: '', is_active: true, subIngredients: [{ ingredientId: null, quantity: 0, displayUnit: null }], batchYield: 1, package_qty: '', package_price: '' })
     setShowModal(true)
   }
 
@@ -35,6 +54,8 @@ export default function Ingredients() {
       category: ing.category || '',
       is_active: !!ing.is_active,
       batchYield: ing.batchYield || 1,
+      package_qty: ing.package_qty ? String(ing.package_qty) : '',
+      package_price: ing.package_price ? String(ing.package_price) : '',
       subIngredients: (() => {
         const rows = (ing.subIngredients || []).map(si => {
           const subIng = ingredients.find(i => i.id === si.ingredientId)
@@ -97,6 +118,8 @@ export default function Ingredients() {
       cost: parseFloat(form.cost) || 0,
       category: form.category,
       is_active: form.is_active,
+      package_qty: parseFloat(form.package_qty) || 0,
+      package_price: parseFloat(form.package_price) || 0,
       batchYield: form.subIngredients.some(si => si.ingredientId) ? (parseFloat(form.batchYield) || 1) : 1,
       subIngredients: form.subIngredients
         .filter(si => si.ingredientId && parseFloat(si.quantity || '0') > 0)
@@ -109,19 +132,28 @@ export default function Ingredients() {
           return { ingredientId: si.ingredientId, quantity: qty }
         })
     }
-    if (editing) {
-      await window.piu?.updateIngredient({ id: editing.id, ...data })
-    } else {
-      await window.piu?.createIngredient(data)
+    try {
+      if (editing) {
+        await window.piu?.updateIngredient({ id: editing.id, ...data })
+      } else {
+        await window.piu?.createIngredient(data)
+      }
+      setShowModal(false)
+      load()
+      showToast('Ingrediente guardado', 'success')
+    } catch (e) {
+      setError('No se pudo guardar el ingrediente.')
     }
-    setShowModal(false)
-    load()
   }
 
   const handleDelete = async (id) => {
-    if (confirm('¿Eliminar este ingrediente? Se eliminará de platos y sub-productos que lo usen.')) {
+    if (!confirm('¿Eliminar este ingrediente? Se eliminará de platos y sub-productos que lo usen.')) return
+    try {
       await window.piu?.deleteIngredient(id)
       load()
+      showToast('Ingrediente eliminado', 'success')
+    } catch (e) {
+      setError('No se pudo eliminar el ingrediente.')
     }
   }
 
@@ -153,9 +185,53 @@ export default function Ingredients() {
         marginBottom: 'var(--spacing-lg)'
       }}>
         <h2>Ingredientes</h2>
-        <button className="btn btn-primary btn-lg" onClick={openNew}>
-          + Nuevo Ingrediente
+        <button className="btn btn-primary" onClick={openNew} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
+          + Ingrediente
         </button>
+      </div>
+
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
+      {priceReview && !dismissedStale && (() => {
+        const staleCount = priceReview.ingredients.filter(i => i.isStale).length
+        if (!staleCount) return null
+        const threshold = parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)
+        return (
+          <div style={{
+            background: 'var(--warning-light)',
+            border: '1.5px solid var(--warning)',
+            borderRadius: 'var(--radius)',
+            padding: 'var(--spacing-sm) var(--spacing-md)',
+            marginBottom: 'var(--spacing-md)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--spacing-md)'
+          }}>
+            <span style={{ fontWeight: 600, color: 'var(--warning)' }}>
+              {staleCount} ingrediente{staleCount !== 1 ? 's' : ''} sin actualizar hace más de {threshold} días
+            </span>
+            <button className="btn btn-ghost btn-sm" onClick={dismissStaleBanner} aria-label="Descartar">✕</button>
+          </div>
+        )
+      })()}
+
+      <div style={{
+        display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)',
+        flexWrap: 'wrap'
+      }}>
+        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Ingredientes</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{ingredients.filter(i => !i.subIngredients || i.subIngredients.length === 0).length}</p>
+        </div>
+        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>Sub-productos</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--accent)' }}>{ingredients.filter(i => i.subIngredients && i.subIngredients.length > 0).length}</p>
+        </div>
+        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Total</p>
+          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{ingredients.length}</p>
+        </div>
       </div>
 
       <div style={{ marginBottom: 'var(--spacing-md)' }}>
@@ -173,7 +249,7 @@ export default function Ingredients() {
       {filtered.length === 0 ? (
         <div className="empty-state card">
           <h3>{search ? 'Sin resultados' : 'No hay ingredientes cargados'}</h3>
-          <p>{search ? 'Probá con otro término de búsqueda.' : 'Agregá ingredientes para usarlos en los platos y calcular costos.'}</p>
+          <p>{search ? 'Probá con otro término de búsqueda.' : 'Usá "+ Nuevo Ingrediente" para cargar ingredientes y sus costos unitarios.'}</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
@@ -190,7 +266,6 @@ export default function Ingredients() {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
                     <h3 style={{ fontSize: 'var(--font-lg)', margin: 0 }}>
-                      {isComposite && <span style={{ marginRight: '4px' }}>🧩</span>}
                       {ing.name}
                     </h3>
                     {ing.category && (
@@ -209,6 +284,19 @@ export default function Ingredients() {
                         Inactivo
                       </span>
                     )}
+                    {priceReview && (() => {
+                      const ri = priceReview.ingredients.find(i => i.id === ing.id)
+                      return ri?.isStale ? (
+                        <span className="badge badge-warning" style={{ fontSize: 'var(--font-sm)' }}>
+                          Hace {ri.daysSinceUpdate} días
+                          {ri.staleSubNames && ri.staleSubNames.length > 0 && (
+                            <span style={{ fontWeight: 400, marginLeft: '4px' }}>
+                              ({ri.staleSubNames.join(', ')})
+                            </span>
+                          )}
+                        </span>
+                      ) : null
+                    })()}
                     {isComposite && (
                       <span className="badge badge-info" style={{ fontSize: 'var(--font-sm)' }}>
                         Sub-producto
@@ -227,6 +315,11 @@ export default function Ingredients() {
                       Costo: <strong>${fmtCost(ing.cost)}</strong> / {ing.unit}
                       {isComposite && <span style={{ fontStyle: 'italic', marginLeft: '4px' }}>(calculado)</span>}
                     </span>
+                    {ing.package_qty > 0 && ing.package_price > 0 && (
+                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+                        Paquete: {ing.package_qty} × ${fmtCost(ing.package_price)}
+                      </span>
+                    )}
                   </div>
                   {isComposite && (
                     <details style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
@@ -248,8 +341,16 @@ export default function Ingredients() {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(ing)} aria-label="Editar ingrediente">✏️</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(ing.id)} aria-label="Eliminar ingrediente">🗑️</button>
+                    {priceReview && (() => {
+                      const ri = priceReview.ingredients.find(i => i.id === ing.id)
+                      return ri?.isStale ? (
+                        <button className="btn btn-sm btn-icon-confirm" onClick={() => handleMarkUpdated(ing.id)}>
+                          Actualizado
+                        </button>
+                      ) : null
+                    })()}
+                  <button className="btn btn-sm btn-icon-edit" onClick={() => openEdit(ing)} aria-label="Editar ingrediente">Editar</button>
+                  <button className="btn btn-sm btn-icon-delete" onClick={() => handleDelete(ing.id)} aria-label="Eliminar ingrediente">Eliminar</button>
                 </div>
               </div>
             )
@@ -263,8 +364,9 @@ export default function Ingredients() {
         title={editing ? 'Editar Ingrediente' : 'Nuevo Ingrediente'}
       >
         <div className="form-group">
-          <label>Nombre del ingrediente</label>
+          <label htmlFor="ing-name">Nombre del ingrediente</label>
           <input
+            id="ing-name"
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             placeholder="Ej: Harina 0000"
@@ -273,8 +375,9 @@ export default function Ingredients() {
 
         <div className="form-row">
           <div className="form-group">
-            <label>Unidad</label>
+            <label htmlFor="ing-unit">Unidad</label>
             <select
+              id="ing-unit"
               value={form.unit}
               onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
             >
@@ -283,13 +386,52 @@ export default function Ingredients() {
               ))}
             </select>
           </div>
-          <div className="form-group">
-            <label>Costo por unidad ($)</label>
+          <div className="form-group" style={{ flex: 1.5 }}>
+            <label htmlFor="ing-pkg-qty">Cant. del paquete</label>
             <input
+              id="ing-pkg-qty"
+              type="text"
+              inputMode="decimal"
+              value={form.package_qty}
+              onChange={e => {
+                const v = e.target.value
+                const qty = parseFloat(v) || 0
+                const pkgP = parseFloat(form.package_price) || 0
+                const cost = (qty > 0 && pkgP > 0) ? String(pkgP / qty) : ''
+                setForm(f => ({ ...f, package_qty: v, cost: cost || f.cost }))
+              }}
+              placeholder="Ej: 10"
+              disabled={form.subIngredients.some(si => si.ingredientId)}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="ing-pkg-price">Precio del paquete ($)</label>
+            <input
+              id="ing-pkg-price"
+              type="text"
+              inputMode="decimal"
+              value={form.package_price}
+              onChange={e => {
+                const v = e.target.value
+                const pkgP = parseFloat(v) || 0
+                const qty = parseFloat(form.package_qty) || 0
+                const cost = (qty > 0 && pkgP > 0) ? String(pkgP / qty) : ''
+                setForm(f => ({ ...f, package_price: v, cost: cost || f.cost }))
+              }}
+              placeholder="Ej: 500"
+              disabled={form.subIngredients.some(si => si.ingredientId)}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="ing-cost">Costo por {form.unit} ($)</label>
+            <input
+              id="ing-cost"
               type="text"
               inputMode="decimal"
               value={form.cost}
-              onChange={e => setForm(f => ({ ...f, cost: e.target.value }))}
+              onChange={e => {
+                setForm(f => ({ ...f, cost: e.target.value }))
+              }}
               placeholder="0"
               disabled={form.subIngredients.some(si => si.ingredientId)}
             />
@@ -301,8 +443,9 @@ export default function Ingredients() {
           </div>
           {form.subIngredients.some(si => si.ingredientId) && (
             <div className="form-group">
-              <label>Rendimiento ({form.unit})</label>
+              <label htmlFor="ing-batch-yield">Rendimiento ({form.unit})</label>
               <input
+                id="ing-batch-yield"
                 type="text"
                 inputMode="numeric"
                 value={form.batchYield || ''}
@@ -327,8 +470,9 @@ export default function Ingredients() {
         </div>
 
         <div className="form-group">
-          <label>Categoría</label>
+          <label htmlFor="ing-category">Categoría</label>
           <input
+            id="ing-category"
             value={form.category}
             onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
             placeholder="Ej: Secos, Lácteos, Carnes"
@@ -446,8 +590,9 @@ export default function Ingredients() {
         </div>
 
         <div className="form-group">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+          <label htmlFor="ing-active" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
             <input
+              id="ing-active"
               type="checkbox"
               checked={form.is_active}
               onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}

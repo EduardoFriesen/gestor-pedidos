@@ -30,7 +30,9 @@ function init(dbPath) {
 
 function save() {
   data._nextId = nextId
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
+  const tmpPath = filePath + '.tmp'
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8')
+  fs.renameSync(tmpPath, filePath)
 }
 
 function genId() {
@@ -133,15 +135,17 @@ function getDashboard() {
         .filter(oi => oi.dish_id === d.id)
         .reduce((sum, oi) => sum + oi.quantity, 0)
       const produced = prodMap[d.id] || 0
-      return { id: d.id, name: d.name, category: d.category, total_ordered: ordered, total_produced: produced }
+      const overproduction = Math.max(0, produced - ordered)
+      return { id: d.id, name: d.name, category: d.category, total_ordered: ordered, total_produced: produced, overproduction }
     })
-    .filter(d => d.total_ordered > 0)
+    .filter(d => d.total_ordered > 0 || d.total_produced > 0)
     .sort((a, b) => b.total_ordered - a.total_ordered)
 
   const totalOrdered = dishes.reduce((s, d) => s + d.total_ordered, 0)
   const totalProduced = dishes.reduce((s, d) => s + d.total_produced, 0)
+  const totalOverproduction = Math.max(0, totalProduced - totalOrdered)
 
-  return { week, dishes, totals: { total: totalOrdered, produced: totalProduced } }
+  return { week, dishes, totals: { total: totalOrdered, produced: totalProduced, overproduction: totalOverproduction } }
 }
 
 function addProduction(dishId, quantity) {
@@ -223,6 +227,11 @@ function getOrders() {
 }
 
 function createOrder({ clientId, weekId, items, notes, has_delivery, delivery_fee }) {
+  if (!data.clients.some(c => c.id === clientId)) return { success: false, reason: 'invalid_client' }
+  if (!data.weeks.some(w => w.id === weekId)) return { success: false, reason: 'invalid_week' }
+  const validItems = (items || []).filter(item => item.dishId && data.dishes.some(d => d.id === item.dishId) && (item.quantity || 0) > 0)
+  if (validItems.length === 0) return { success: false, reason: 'no_valid_items' }
+
   const order = {
     id: genId(),
     client_id: clientId,
@@ -235,12 +244,12 @@ function createOrder({ clientId, weekId, items, notes, has_delivery, delivery_fe
   }
   data.orders.push(order)
 
-  for (const item of items) {
+  for (const item of validItems) {
     data.orderItems.push({
       id: genId(),
       order_id: order.id,
       dish_id: item.dishId,
-      quantity: Math.max(0, item.quantity || 0)
+      quantity: Math.max(1, item.quantity || 1)
     })
   }
   save()
@@ -250,18 +259,20 @@ function createOrder({ clientId, weekId, items, notes, has_delivery, delivery_fe
 function updateOrder({ id, clientId, items, notes, has_delivery, delivery_fee }) {
   const order = data.orders.find(o => o.id === id)
   if (!order) return { success: false }
+  if (!data.clients.some(c => c.id === clientId)) return { success: false, reason: 'invalid_client' }
   order.client_id = clientId
   order.notes = notes || ''
   order.has_delivery = !!has_delivery
   order.delivery_fee = Number(delivery_fee) || 0
 
+  const validItems = (items || []).filter(item => item.dishId && data.dishes.some(d => d.id === item.dishId) && (item.quantity || 0) > 0)
   data.orderItems = data.orderItems.filter(oi => oi.order_id !== id)
-  for (const item of items) {
+  for (const item of validItems) {
     data.orderItems.push({
       id: genId(),
       order_id: id,
       dish_id: item.dishId,
-      quantity: Math.max(0, item.quantity || 0)
+      quantity: Math.max(1, item.quantity || 1)
     })
   }
   save()
@@ -346,10 +357,8 @@ function getOrdersByWeekId(weekId) {
 
 function getDishes() {
   return data.dishes.map(d => {
-    if (typeof d.ingredients === 'string') {
-      d.ingredients = []
-    }
-    const ingredients = (d.ingredients || []).map(item => {
+    const ings = (typeof d.ingredients === 'string' ? [] : (d.ingredients || []))
+    const ingredients = ings.map(item => {
       const ing = data.ingredients.find(i => i.id === item.ingredientId)
       const cost = ing?.cost || 0
       const batchYield = ing?.batchYield || 1
@@ -400,6 +409,8 @@ function updateDish(d) {
 }
 
 function deleteDish(id) {
+  const hasOrders = data.orderItems.some(oi => oi.dish_id === id)
+  if (hasOrders) return { success: false, reason: 'has_orders' }
   data.dishes = data.dishes.filter(d => d.id !== id)
   save()
   return { success: true }
@@ -452,7 +463,10 @@ function createIngredient(ing) {
     category: ing.category || '',
     is_active: ing.is_active !== false,
     subIngredients: ing.subIngredients || [],
-    batchYield: ing.batchYield || 1
+    batchYield: ing.batchYield || 1,
+    last_cost_update: ing.last_cost_update || new Date().toISOString(),
+    package_qty: ing.package_qty || 0,
+    package_price: ing.package_price || 0
   }
   if (ingredient.subIngredients.length > 0) {
     ingredient.cost = calcCompositeCost(ingredient.subIngredients, ingredient.batchYield)
@@ -479,6 +493,9 @@ function updateIngredient(ing) {
   item.is_active = ing.is_active !== false
   item.subIngredients = ing.subIngredients || []
   item.batchYield = ing.batchYield || 1
+  item.last_cost_update = new Date().toISOString()
+  item.package_qty = ing.package_qty || 0
+  item.package_price = ing.package_price || 0
   if (item.subIngredients.length > 0) {
     item.cost = calcCompositeCost(item.subIngredients, item.batchYield)
   }
@@ -562,6 +579,8 @@ function updateClient(c) {
 }
 
 function deleteClient(id) {
+  const hasOrders = data.orders.some(o => o.client_id === id)
+  if (hasOrders) return { success: false, reason: 'has_orders' }
   data.clients = data.clients.filter(c => c.id !== id)
   save()
   return { success: true }
@@ -894,6 +913,24 @@ function getMonthlyTrend() {
     .slice(-12)
 }
 
+function getQuarterlyTrend() {
+  const months = getMonthlyTrend()
+  const quarters = {}
+  for (const m of months) {
+    const q = Math.ceil(parseInt(m.month.slice(5)) / 3)
+    const key = `${m.month.slice(0, 4)}-T${q}`
+    if (!quarters[key]) {
+      quarters[key] = { quarter: key, order_count: 0, revenue: 0, cost: 0, total_dishes: 0 }
+    }
+    quarters[key].order_count += m.order_count
+    quarters[key].revenue += m.revenue
+    quarters[key].cost += m.cost
+    quarters[key].total_dishes += m.total_dishes
+    quarters[key].profit = quarters[key].revenue - quarters[key].cost
+  }
+  return Object.values(quarters).sort((a, b) => a.quarter.localeCompare(b.quarter)).slice(-8)
+}
+
 function getYearlyTrend() {
   const costMap = getDishCostMap()
   const years = {}
@@ -1050,15 +1087,29 @@ function getTrendsInRange(startDate, endDate) {
     .map(([k, v]) => ({ [keyName]: k, total_dishes: v.dishes, revenue: v.revenue, cost: v.cost, profit: v.revenue - v.cost, order_count: v.orderIds.size }))
     .sort((a, b) => a[keyName].localeCompare(b[keyName]))
 
+  const quarterly = {}
+  for (const m of mapResult(monthly, 'month')) {
+    const q = Math.ceil(parseInt(m.month.slice(5)) / 3)
+    const key = `${m.month.slice(0, 4)}-T${q}`
+    if (!quarterly[key]) quarterly[key] = { total_dishes: 0, revenue: 0, cost: 0, order_count: 0 }
+    quarterly[key].total_dishes += m.total_dishes
+    quarterly[key].revenue += m.revenue
+    quarterly[key].cost += m.cost
+    quarterly[key].order_count += m.order_count
+    quarterly[key].profit = quarterly[key].revenue - quarterly[key].cost
+  }
+
   return {
     weekly: mapResult(weekly, 'week_start'),
     monthly: mapResult(monthly, 'month'),
+    quarterly: Object.entries(quarterly).map(([k, v]) => ({ quarter: k, ...v })).sort((a, b) => a.quarter.localeCompare(b.quarter)),
     yearly: mapResult(yearly, 'year')
   }
 }
 
 function getDishTimeSeries(dishId, startDate, endDate) {
   const orderIdSet = new Set(getOrdersInRange(startDate, endDate))
+  const costMap = getDishCostMap()
   const periods = {}
 
   for (const oi of data.orderItems) {
@@ -1068,8 +1119,8 @@ function getDishTimeSeries(dishId, startDate, endDate) {
     if (!order) continue
     const wk = data.weeks.find(w => w.id === order.week_id)
     if (!wk) continue
-    if (!periods[wk.week_start]) periods[wk.week_start] = { orderIds: new Set(), produced: 0 }
-    periods[wk.week_start].orderIds.add(order.id)
+    if (!periods[wk.week_start]) periods[wk.week_start] = { ordered: 0, produced: 0 }
+    periods[wk.week_start].ordered += oi.quantity
   }
 
   const start = startDate ? new Date(startDate) : null
@@ -1086,7 +1137,7 @@ function getDishTimeSeries(dishId, startDate, endDate) {
   }
 
   return Object.entries(periods)
-    .map(([k, v]) => ({ period: k, ordered: v.orderIds.size, produced: v.produced }))
+    .map(([k, v]) => ({ period: k, ordered: v.ordered, produced: v.produced, overproduction: Math.max(0, v.produced - v.ordered) }))
     .sort((a, b) => a.period.localeCompare(b.period))
 }
 
@@ -1130,7 +1181,6 @@ function getStatsForOrderIds(orderIds) {
   let totalRevenue = 0
   let totalCost = 0
 
-  const feeAddedOrders = new Set()
   for (const oi of data.orderItems) {
     if (!orderSet.has(oi.order_id)) continue
     const order = data.orders.find(o => o.id === oi.order_id)
@@ -1145,17 +1195,12 @@ function getStatsForOrderIds(orderIds) {
     totalCost += itemCost
 
     if (!dishData[dish.id]) {
-      dishData[dish.id] = { id: dish.id, name: dish.name, price: dish.price || 0, costPerUnit: cost, total: 0, totalCost: 0, totalRevenue: 0 }
+      dishData[dish.id] = { id: dish.id, name: dish.name, price: dish.price || 0, costPerUnit: cost, total: 0, totalCost: 0, totalRevenue: 0, orderIds: new Set() }
     }
     dishData[dish.id].total += oi.quantity
     dishData[dish.id].totalCost += itemCost
     dishData[dish.id].totalRevenue += revenue
-
-    if (order && order.has_delivery && !feeAddedOrders.has(order.id)) {
-      feeAddedOrders.add(order.id)
-      totalRevenue += order.delivery_fee || 0
-      totalCost += order.delivery_fee || 0
-    }
+    dishData[dish.id].orderIds.add(oi.order_id)
 
     if (order && order.client_id) {
       const ckey = `${order.client_id}`
@@ -1167,12 +1212,14 @@ function getStatsForOrderIds(orderIds) {
           last_name: client?.last_name || '',
           orderIds: new Set(),
           total_dishes: 0,
-          dishCounts: {}
+          dishCounts: {},
+          totalRevenue: 0
         }
       }
       clientData[ckey].orderIds.add(order.id)
       clientData[ckey].total_dishes += oi.quantity
       clientData[ckey].dishCounts[`${dish.id}`] = (clientData[ckey].dishCounts[`${dish.id}`] || 0) + oi.quantity
+      clientData[ckey].totalRevenue += revenue
     }
 
     if (order) {
@@ -1187,7 +1234,8 @@ function getStatsForOrderIds(orderIds) {
       name: d.name, total: d.total, price: d.price,
       cost: d.costPerUnit, profit: d.price - d.costPerUnit,
       totalRevenue: d.totalRevenue, totalCost: d.totalCost,
-      totalProfit: d.totalRevenue - d.totalCost
+      totalProfit: d.totalRevenue - d.totalCost,
+      orderCount: d.orderIds.size
     }))
     .sort((a, b) => b.total - a.total)
 
@@ -1198,7 +1246,7 @@ function getStatsForOrderIds(orderIds) {
         if (count > maxCount) { maxCount = count; favoriteId = parseInt(did) }
       }
       const favDish = favoriteId ? data.dishes.find(d => d.id === favoriteId) : null
-      return { clientId: c.clientId, name: c.name, last_name: c.last_name, order_count: c.orderIds.size, total_dishes: c.total_dishes, favorite_dish: favDish?.name || null }
+      return { clientId: c.clientId, name: c.name, last_name: c.last_name, order_count: c.orderIds.size, total_dishes: c.total_dishes, totalRevenue: c.totalRevenue, favorite_dish: favDish?.name || null }
     })
     .sort((a, b) => b.order_count - a.order_count)
 
@@ -1220,6 +1268,50 @@ function getStatsForOrderIds(orderIds) {
   return { topDishes, topClients, revenue: totalRevenue, totalCost, totalProfit, totalOrders: orderIds.length, dayOfWeek, dishProfitability }
 }
 
+function getOverproductionInRange(startDate, endDate) {
+  const orderIds = getOrdersInRange(startDate, endDate)
+  const orderSet = new Set(orderIds)
+  const costMap = getDishCostMap()
+  const dishMap = {}
+
+  const start = startDate ? new Date(startDate) : null
+  const end = endDate ? new Date(endDate + 'T23:59:59') : null
+
+  for (const pl of data.productionLog) {
+    const plDate = new Date(pl.date_produced)
+    if (start && plDate < start) continue
+    if (end && plDate > end) continue
+    if (!dishMap[pl.dish_id]) dishMap[pl.dish_id] = { produced: 0, ordered: 0 }
+    dishMap[pl.dish_id].produced += pl.quantity_produced
+  }
+
+  for (const oi of data.orderItems) {
+    if (!orderSet.has(oi.order_id)) continue
+    if (!dishMap[oi.dish_id]) dishMap[oi.dish_id] = { produced: 0, ordered: 0 }
+    dishMap[oi.dish_id].ordered += oi.quantity
+  }
+
+  let totalOverproduction = 0
+  let totalOverproductionCost = 0
+  const perDish = Object.entries(dishMap).map(([id, v]) => {
+    const dish = data.dishes.find(d => d.id === parseInt(id))
+    const over = Math.max(0, v.produced - v.ordered)
+    const cost = costMap[parseInt(id)] || 0
+    totalOverproduction += over
+    totalOverproductionCost += over * cost
+    return {
+      dishId: parseInt(id),
+      dishName: dish?.name || 'Desconocido',
+      ordered: v.ordered,
+      produced: v.produced,
+      overproduction: over,
+      cost
+    }
+  }).filter(d => d.ordered > 0 || d.produced > 0)
+
+  return { totalOverproduction, totalOverproductionCost, perDish }
+}
+
 function getAnalyticsFiltered(startDate, endDate) {
   const orderIds = getOrdersInRange(startDate, endDate)
   return getStatsForOrderIds(orderIds)
@@ -1239,13 +1331,6 @@ function getPeriodComparison(p1Start, p1End, p2Start, p2End) {
       if (!dish) continue
       revenue += (dish.price || 0) * oi.quantity
       cost += (costMap[dish.id] || 0) * oi.quantity
-    }
-    for (const id of ids) {
-      const order = data.orders.find(o => o.id === id)
-      if (order && order.has_delivery) {
-        revenue += order.delivery_fee || 0
-        cost += order.delivery_fee || 0
-      }
     }
     profit = revenue - cost
     return { orders: ids.length, revenue, cost, profit, margin: revenue > 0 ? ((revenue - cost) / revenue * 100) : 0 }
@@ -1279,8 +1364,133 @@ function setDefaultDeliveryFee(fee) {
   save()
 }
 
+function getWeekOrderCounts() {
+  const week = getCurrentWeek()
+  const counts = { pending: 0, confirmed: 0, assembled: 0, delivered: 0, total: 0 }
+  for (const o of data.orders) {
+    if (o.week_id !== week.id) continue
+    counts.total++
+    if (counts[o.status] !== undefined) counts[o.status]++
+  }
+  return counts
+}
+
+function getEntityCounts() {
+  const allDishes = data.dishes || []
+  const allClients = data.clients || []
+  const allIngredients = data.ingredients || []
+  return {
+    totalClients: allClients.length,
+    totalDishes: allDishes.length,
+    activeDishes: allDishes.filter(d => d.is_active).length,
+    inactiveDishes: allDishes.filter(d => !d.is_active).length,
+    totalIngredients: allIngredients.length,
+    activeIngredients: allIngredients.filter(i => i.is_active !== false).length
+  }
+}
+
+function getPriceReview() {
+  const now = Date.now()
+  const threshold = 30
+  const ingredients = data.ingredients
+    .filter(i => i.is_active !== false)
+    .map(i => {
+      const lastUpdate = i.last_cost_update ? new Date(i.last_cost_update).getTime() : 0
+      const daysSince = lastUpdate ? Math.floor((now - lastUpdate) / 86400000) : 999
+      return { ...i, daysSinceUpdate: daysSince, isStale: daysSince >= threshold }
+    })
+    .sort((a, b) => b.daysSinceUpdate - a.daysSinceUpdate)
+
+  const staleIds = new Set(ingredients.filter(i => i.isStale).map(i => i.id))
+  const ingById = {}
+  for (const i of data.ingredients) ingById[i.id] = i
+  const adjusted = ingredients.map(i => {
+    if (i.subIngredients && i.subIngredients.length > 0) {
+      const staleSubs = i.subIngredients
+        .filter(si => staleIds.has(si.ingredientId))
+        .map(si => ingById[si.ingredientId]?.name || 'Ingrediente eliminado')
+      return { ...i, isStale: staleSubs.length > 0, staleSubNames: staleSubs }
+    }
+    return i
+  })
+    .sort((a, b) => b.daysSinceUpdate - a.daysSinceUpdate)
+
+  const dishPrices = data.dishes.filter(d => d.is_active !== false).map(d => {
+    const computedCost = calculateDishCost(d.id)
+    return {
+      id: d.id, name: d.name, price: d.price || 0, category: d.category || '',
+      computedCost: computedCost || 0,
+      margin: d.price > 0 ? ((d.price - computedCost) / d.price * 100) : 0,
+      profit: (d.price || 0) - (computedCost || 0)
+    }
+  })
+
+  return { ingredients: adjusted, dishPrices }
+}
+
 function close() {
   save()
+}
+
+function getExportData() {
+  return JSON.parse(JSON.stringify(data))
+}
+
+function importData(newData) {
+  const required = ['weeks', 'dishes', 'clients', 'orders', 'orderItems', 'ingredients']
+  for (const key of required) {
+    if (!Array.isArray(newData[key])) throw new Error(`Campo inválido: ${key}`)
+  }
+  data = { ...defaultData(), ...newData }
+  nextId = data._nextId || 1
+  save()
+}
+
+function getSalesForExport(startDate, endDate) {
+  const orderIds = getOrdersInRange(startDate, endDate)
+  const orderSet = new Set(orderIds)
+  const costMap = getDishCostMap()
+  const rows = []
+  for (const oi of data.orderItems) {
+    if (!orderSet.has(oi.order_id)) continue
+    const order = data.orders.find(o => o.id === oi.order_id)
+    const dish = data.dishes.find(d => d.id === oi.dish_id)
+    if (!dish || !order) continue
+    const client = data.clients.find(c => c.id === order.client_id)
+    const cost = costMap[dish.id] || 0
+    const revenue = (dish.price || 0) * oi.quantity
+    const itemCost = cost * oi.quantity
+    rows.push({
+      order_id: `#${order.id}`,
+      fecha: order.created_at?.split(' ')[0] || '',
+      cliente: client ? `${client.name} ${client.last_name}`.trim() : '—',
+      plato: dish.name,
+      cantidad: oi.quantity,
+      precio_unitario: dish.price || 0,
+      ingreso: revenue,
+      costo: itemCost,
+      ganancia: revenue - itemCost,
+      estado: order.status || '',
+      semana: order.week_id
+    })
+  }
+  return rows
+}
+
+function markIngredientUpdated(id) {
+  const item = data.ingredients.find(i => i.id === id)
+  if (!item) return { success: false }
+  item.last_cost_update = new Date().toISOString()
+  save()
+  return { success: true }
+}
+
+function markDishPriceUpdated(id) {
+  const dish = data.dishes.find(d => d.id === id)
+  if (!dish) return { success: false }
+  dish.last_price_review = new Date().toISOString()
+  save()
+  return { success: true }
 }
 
 module.exports = {
@@ -1337,6 +1547,15 @@ module.exports = {
   getTrendsInRange,
   getDishTimeSeries,
   getClientTimeSeries,
+  getOverproductionInRange,
+  getWeekOrderCounts,
+  getEntityCounts,
   getDefaultDeliveryFee,
-  setDefaultDeliveryFee
+  setDefaultDeliveryFee,
+  getPriceReview,
+  getExportData,
+  importData,
+  getSalesForExport,
+  markIngredientUpdated,
+  markDishPriceUpdated
 }

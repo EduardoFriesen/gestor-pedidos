@@ -53,9 +53,11 @@
   },
   "dependencies": {
     "jspdf": "^2.5.2",
+    "playwright": "^1.61.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.28.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
