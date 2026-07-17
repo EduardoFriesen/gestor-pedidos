@@ -62,7 +62,7 @@ function registerIpcHandlers() {
   ipcMain.handle('piu:getIngredientCategories', () => store.getIngredientCategories())
   ipcMain.handle('piu:getDefaultDeliveryFee', () => store.getDefaultDeliveryFee())
   ipcMain.handle('piu:setDefaultDeliveryFee', (_, { fee }) => store.setDefaultDeliveryFee(fee))
-  ipcMain.handle('piu:getPriceReview', () => store.getPriceReview())
+  ipcMain.handle('piu:getPriceReview', (_, threshold) => store.getPriceReview(threshold))
   ipcMain.handle('piu:markIngredientUpdated', (_, { id }) => store.markIngredientUpdated(id))
   ipcMain.handle('piu:markDishPriceUpdated', (_, { id }) => store.markDishPriceUpdated(id))
   ipcMain.handle('piu:getExportData', () => store.getExportData())

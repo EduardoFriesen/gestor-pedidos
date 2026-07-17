@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { useHeaderContent } from './HeaderContext'
 
 const navItems = [
   { path: '/', label: 'Producción', icon: '📊', short: 'Prod', key: '1' },
@@ -7,7 +8,7 @@ const navItems = [
   { path: '/menu', label: 'Menú', icon: '🍽️', short: 'Menú', key: '3' },
   { path: '/ingredients', label: 'Ingredientes', icon: '🥘', short: 'Ingr', key: '4' },
   { path: '/clients', label: 'Clientes', icon: '👥', short: 'Cli', key: '5' },
-  { path: '/analytics', label: 'Análisis', icon: '📊', short: 'Anal', key: '6' },
+  { path: '/analytics', label: 'Análisis', icon: '📈', short: 'Anal', key: '6' },
   { path: '/settings', label: 'Ajustes', icon: '⚙️', short: 'Ajust', key: '7' }
 ]
 
@@ -18,6 +19,7 @@ export default function Layout({ children, theme, macroMode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const initialPath = useRef(location.pathname)
+  const { headerContent } = useHeaderContent()
 
   useEffect(() => {
     window.piu?.getCurrentWeek().then(setWeekInfo)
@@ -40,6 +42,7 @@ export default function Layout({ children, theme, macroMode }) {
   useEffect(() => {
     const handler = (e) => {
       if (!e.ctrlKey && !e.metaKey) return
+      if (document.querySelector('.modal-overlay')) return
       const idx = ['1','2','3','4','5','6','7'].indexOf(e.key)
       if (idx >= 0 && navItems[idx]) {
         e.preventDefault()
@@ -141,7 +144,6 @@ export default function Layout({ children, theme, macroMode }) {
                 alignItems: 'center',
                 gap: 'var(--spacing-xs)'
               })}
-              aria-current={({ isActive }) => isActive ? 'page' : undefined}
             >
               <span style={{
                 display: 'inline-flex',
@@ -181,7 +183,10 @@ export default function Layout({ children, theme, macroMode }) {
         </nav>
       </header>
 
+      {headerContent}
+
       <main
+        key={location.key}
         ref={mainRef}
         id="main-content"
         tabIndex={-1}
@@ -189,7 +194,8 @@ export default function Layout({ children, theme, macroMode }) {
           flex: 1,
           overflow: 'auto',
           padding: 'var(--spacing-md)',
-          outline: 'none'
+          outline: 'none',
+          animation: 'slideUp 250ms var(--ease-out-quart)'
         }}
       >
         {children}

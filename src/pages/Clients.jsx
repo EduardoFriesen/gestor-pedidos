@@ -1,16 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Modal from '../components/Modal'
 import ErrorBanner from '../components/ErrorBanner'
+import ConfirmPopup from '../components/ConfirmPopup'
 import { useToast } from '../components/ToastProvider'
 
 export default function Clients() {
   const showToast = useToast()
+  const savingRef = useRef(false)
+  const [saving, setSaving] = useState(false)
   const [clients, setClients] = useState([])
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ name: '', last_name: '', phone: '', address: '', notes: '' })
   const [error, setError] = useState(null)
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const firstInputRef = useRef(null)
 
   const load = useCallback(async () => {
     try {
@@ -43,7 +48,10 @@ export default function Clients() {
   }
 
   const handleSave = async () => {
+    if (savingRef.current) return
     if (!form.name.trim()) return
+    savingRef.current = true
+    setSaving(true)
     try {
       const data = {
         name: form.name.trim(),
@@ -54,19 +62,39 @@ export default function Clients() {
       }
       if (editing) {
         await window.piu?.updateClient({ id: editing.id, ...data })
+        setShowModal(false)
       } else {
         await window.piu?.createClient(data)
+        setShowConfirmPopup(true)
       }
-      setShowModal(false)
       load()
       showToast('Cliente guardado', 'success')
     } catch (e) {
       setError('No se pudo guardar el cliente.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
+  const handleContinueAdding = () => {
+    setShowConfirmPopup(false)
+    setForm({ name: '', last_name: '', phone: '', address: '', notes: '' })
+    requestAnimationFrame(() => {
+      if (firstInputRef.current) firstInputRef.current.focus()
+    })
+  }
+
+  const handleStopAdding = () => {
+    setShowConfirmPopup(false)
+    setShowModal(false)
+  }
+
   const handleDelete = async (id) => {
+    if (savingRef.current) return
     if (!confirm('¿Eliminar este cliente?')) return
+    savingRef.current = true
+    setSaving(true)
     try {
       const res = await window.piu?.deleteClient(id)
       if (res && !res.success && res.reason === 'has_orders') {
@@ -77,6 +105,9 @@ export default function Clients() {
       showToast('Cliente eliminado', 'success')
     } catch (e) {
       setError('No se pudo eliminar el cliente.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
@@ -171,11 +202,13 @@ export default function Clients() {
         onClose={() => setShowModal(false)}
         title={editing ? 'Editar Cliente' : 'Nuevo Cliente'}
       >
-        <div className="form-row">
+        <div style={{ position: 'relative' }}>
+          <div className="form-row">
           <div className="form-group">
             <label htmlFor="client-name">Nombre</label>
             <input
               id="client-name"
+              ref={firstInputRef}
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               placeholder="Nombre"
@@ -226,11 +259,19 @@ export default function Clients() {
 
         <div className="form-actions">
           <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancelar</button>
-          <button className="btn btn-primary btn-lg" onClick={handleSave}>
+          <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving}>
             {editing ? 'Guardar cambios' : 'Crear cliente'}
           </button>
         </div>
+        </div>
       </Modal>
+      <ConfirmPopup
+        isOpen={showConfirmPopup}
+        message="Cliente guardado. ¿Cargar otro?"
+        confirmLabel="Sí"
+        onConfirm={handleContinueAdding}
+        onCancel={handleStopAdding}
+      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import PdfViewer from '../components/PdfViewer'
 import { generarHojaProduccion, generarListaCompras } from '../utils/pdf'
 import { SkeletonCard } from '../components/Skeleton'
@@ -7,6 +7,8 @@ import { useToast } from '../components/ToastProvider'
 
 export default function Dashboard() {
   const showToast = useToast()
+  const savingRef = useRef(false)
+  const [savingAction, setSavingAction] = useState(null)
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState(null)
@@ -45,39 +47,60 @@ export default function Dashboard() {
   }
 
   const handleProduce = async (dishId) => {
+    if (savingRef.current) return
+    savingRef.current = true
+    setSavingAction(`produce-${dishId}`)
     try {
       await window.piu?.addProduction(dishId, 1)
       refresh()
       showToast('Producción registrada', 'success')
     } catch (e) {
       setError('No se pudo registrar la producción.')
+    } finally {
+      savingRef.current = false
+      setSavingAction(null)
     }
   }
 
   const handleUndo = async (dishId) => {
+    if (savingRef.current) return
+    savingRef.current = true
+    setSavingAction(`undo-${dishId}`)
     try {
       await window.piu?.undoProduction(dishId)
       refresh()
       showToast('Producción deshecha', 'success')
     } catch (e) {
       setError('No se pudo deshacer la producción.')
+    } finally {
+      savingRef.current = false
+      setSavingAction(null)
     }
   }
 
   const handleCompleteDish = async (dishId) => {
+    if (savingRef.current) return
+    savingRef.current = true
+    setSavingAction(`complete-${dishId}`)
     try {
       await window.piu?.completeDishProduction(dishId)
       refresh()
       showToast('Producción completada', 'success')
     } catch (e) {
       setError('No se pudo completar la producción del plato.')
+    } finally {
+      savingRef.current = false
+      setSavingAction(null)
     }
   }
 
   if (!data) return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)', paddingTop: 'var(--spacing-md)' }}>
-      <div className="skeleton" style={{ height: '2.5em', width: '300px', marginBottom: 'var(--spacing-md)' }} />
-      {[1,2,3,4].map(i => <SkeletonCard key={i} />)}
+    <div>
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)', paddingTop: 'var(--spacing-md)' }}>
+        <div className="skeleton" style={{ height: '2.5em', width: '300px', marginBottom: 'var(--spacing-md)' }} />
+        {[1,2,3,4].map(i => <SkeletonCard key={i} />)}
+      </div>
     </div>
   )
 
@@ -253,7 +276,7 @@ export default function Dashboard() {
           borderColor: totals.overproduction > 0 ? 'var(--danger)' : undefined
         }}>
           <p style={{ fontSize: 'var(--font-sm)', color: totals.overproduction > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
-            {totals.overproduction > 0 ? 'Sobreproducción' : 'Sobreproducción'}
+            Sobreproducción
           </p>
           <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: totals.overproduction > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
             {totals.overproduction}
@@ -435,19 +458,21 @@ export default function Dashboard() {
                         <button
                           className="btn btn-success"
                           onClick={() => handleProduce(dish.id)}
+                          disabled={savingAction !== null}
                           style={{ minWidth: 'var(--touch-size)', fontSize: 'var(--font-lg)', padding: 'var(--spacing-sm) var(--spacing-md)' }}
                           aria-label={`Marcar ${dish.name} como producido`}
                         >
-                          +1
+                          {savingAction === `produce-${dish.id}` ? '...' : '+1'}
                         </button>
                         {remaining > 0 && (
                           <button
                             className="btn btn-primary"
                             onClick={() => handleCompleteDish(dish.id)}
+                            disabled={savingAction !== null}
                             style={{ fontSize: 'var(--font-body)', padding: 'var(--spacing-sm) var(--spacing-md)' }}
                             aria-label={`Completar ${dish.name}`}
                           >
-                            ✓ Completar
+                            {savingAction === `complete-${dish.id}` ? '...' : '✓ Completar'}
                           </button>
                         )}
                       </>
@@ -456,6 +481,7 @@ export default function Dashboard() {
                       <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => handleUndo(dish.id)}
+                        disabled={savingAction !== null}
                         style={{ fontSize: 'var(--font-sm)' }}
                         aria-label={`Deshacer producción de ${dish.name}`}
                       >

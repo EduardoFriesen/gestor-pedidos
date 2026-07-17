@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Modal from '../components/Modal'
 import PdfViewer from '../components/PdfViewer'
+import ConfirmPopup from '../components/ConfirmPopup'
 import { generarEtiquetasDelivery } from '../utils/pdf'
 import { SkeletonOrderRow } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
@@ -8,6 +9,11 @@ import { useToast } from '../components/ToastProvider'
 
 export default function Orders() {
   const showToast = useToast()
+  const blurTimeoutRef = useRef(null)
+  const savingRef = useRef(false)
+  const loadIdRef = useRef(0)
+  const itemKeyRef = useRef(0)
+  const [saving, setSaving] = useState(false)
   const [orders, setOrders] = useState([])
   const [dishes, setDishes] = useState([])
   const [clients, setClients] = useState([])
@@ -17,7 +23,11 @@ export default function Orders() {
   const [editing, setEditing] = useState(null)
   const [week, setWeek] = useState(null)
   const [ordersOpen, setOrdersOpen] = useState(true)
-  const [form, setForm] = useState({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: 500 })
+  const [form, setForm] = useState({ clientId: '', notes: '', items: [{ _key: ++itemKeyRef.current, dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: 500 })
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const [showSecondOrderPopup, setShowSecondOrderPopup] = useState(false)
+  const [secondOrderMessage, setSecondOrderMessage] = useState('')
+  const [pendingData, setPendingData] = useState(null)
   const [defaultDeliveryFee, setDefaultDeliveryFee] = useState(500)
   const [showWeekSelector, setShowWeekSelector] = useState(false)
   const [pdfPreview, setPdfPreview] = useState(null)
@@ -34,6 +44,7 @@ export default function Orders() {
   const [weekOrders, setWeekOrders] = useState([])
 
   const load = useCallback(() => {
+    const id = ++loadIdRef.current
     setLoading(true)
     Promise.all([
       (window.piu?.getOrders() || Promise.resolve([])).catch(() => []),
@@ -44,6 +55,7 @@ export default function Orders() {
       (window.piu?.getDefaultDeliveryFee() || Promise.resolve(500)).catch(() => 500),
       (window.piu?.getPreviousWeeks() || Promise.resolve([])).catch(() => [])
     ]).then(([o, d, c, w, isOpen, fee, pw]) => {
+      if (id !== loadIdRef.current) return
       setOrders(o || [])
       setDishes((d || []).filter(d => d && d.is_active))
       setClients(c || [])
@@ -65,12 +77,18 @@ export default function Orders() {
   }, [])
 
   useEffect(() => {
+    return () => clearTimeout(blurTimeoutRef.current)
+  }, [])
+
+  useEffect(() => {
     if (!showModal) {
       setShowClientDropdown(false)
       setClientSearch('')
       setShowNewClientModal(false)
     }
   }, [showModal])
+
+  const makeItem = (dishId = '', quantity = 1) => ({ _key: ++itemKeyRef.current, dishId, quantity })
 
   const handleWeekSelect = async (e) => {
     const weekId = e.target.value ? parseInt(e.target.value, 10) : null
@@ -94,38 +112,42 @@ export default function Orders() {
   const activeDishes = dishes.filter(d => d.is_active)
 
   const openNew = async () => {
-    const isOpen = await window.piu?.isOrdersOpen()
-    setOrdersOpen(isOpen)
+    try {
+      const isOpen = await window.piu?.isOrdersOpen()
+      setOrdersOpen(isOpen)
 
-    if (!isOpen) {
-      const resp = await window.piu?.getCurrentWeek()
-      const nextWeekDate = new Date(resp.week_start)
-      nextWeekDate.setDate(nextWeekDate.getDate() + 7)
-      const fmt = (dt) => {
-        const y = dt.getFullYear()
-        const m = String(dt.getMonth() + 1).padStart(2, '0')
-        const d = String(dt.getDate()).padStart(2, '0')
-        return `${y}-${m}-${d}`
+      if (!isOpen) {
+        const resp = await window.piu?.getCurrentWeek()
+        if (!resp) return
+        const nextWeekDate = new Date(resp.week_start)
+        nextWeekDate.setDate(nextWeekDate.getDate() + 7)
+        const fmt = (dt) => {
+          const y = dt.getFullYear()
+          const m = String(dt.getMonth() + 1).padStart(2, '0')
+          const d = String(dt.getDate()).padStart(2, '0')
+          return `${y}-${m}-${d}`
+        }
+        const nextStart = fmt(nextWeekDate)
+        const currentWeekStart = resp.week_start
+
+        setAlternateWeek({ current: currentWeekStart, next: nextStart })
+        setShowWeekSelector(true)
+        return
       }
-      const nextStart = fmt(nextWeekDate)
-      const weeks = await window.piu?.getPreviousWeeks() || []
-      const currentWeekStart = resp.week_start
 
-      setAlternateWeek({ current: currentWeekStart, next: nextStart })
-      setShowWeekSelector(true)
-      return
+      setEditing(null)
+      setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee })
+      setShowModal(true)
+    } catch (e) {
+      console.error('Error opening new order:', e)
     }
-
-    setEditing(null)
-    setForm({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: defaultDeliveryFee })
-    setShowModal(true)
   }
 
   const handleWeekChoice = (choice) => {
     setShowWeekSelector(false)
     if (choice === 'cancel') return
     setEditing(null)
-    setForm({ clientId: '', notes: '', items: [{ dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: defaultDeliveryFee, targetWeek: choice })
+    setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee, targetWeek: choice })
     setShowModal(true)
   }
 
@@ -134,41 +156,82 @@ export default function Orders() {
     setForm({
       clientId: order.client_id,
       notes: order.notes || '',
-      items: order.items?.map(i => ({ dishId: i.dish_id, quantity: i.quantity })) || [{ dishId: '', quantity: 1 }],
+      items: order.items?.map(i => ({ _key: ++itemKeyRef.current, dishId: i.dish_id, quantity: i.quantity })) || [makeItem()],
       has_delivery: !!order.has_delivery,
       delivery_fee: order.delivery_fee || defaultDeliveryFee
     })
     setShowModal(true)
   }
 
-  const handleSave = async () => {
-    if (!form.clientId || form.items.length === 0 || !form.items[0].dishId) return
+  const executeSave = async (data, suppressAnother) => {
+    savingRef.current = true
+    setSaving(true)
     try {
-      const data = {
-        clientId: parseInt(form.clientId),
-        weekId: week.id,
-        items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseFloat(i.quantity) || 1 })),
-        notes: form.notes,
-        has_delivery: form.has_delivery,
-        delivery_fee: Number(form.delivery_fee) || 0
-      }
-      if (!editing && (await window.piu?.clientHasOrderThisWeek(parseInt(form.clientId)))) {
-        const c = clients.find(x => x.id === parseInt(form.clientId))
-        const name = c ? `${c.name} ${c.last_name}` : 'El cliente'
-        const ok = window.confirm(`${name} ya tiene un pedido esta semana.\n\n¿Crear un segundo pedido?`)
-        if (!ok) return
-      }
       if (editing) {
         await window.piu?.updateOrder({ id: editing.id, ...data })
+        setShowModal(false)
       } else {
         await window.piu?.createOrder(data)
       }
-      setShowModal(false)
       load()
+      window.dispatchEvent(new Event('piu:production-update'))
       showToast('Pedido guardado', 'success')
+      if (!editing && !suppressAnother) {
+        setShowConfirmPopup(true)
+      }
     } catch (e) {
       setError('No se pudo guardar el pedido.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
+  }
+
+  const handleSave = async () => {
+    if (savingRef.current) return
+    if (!form.clientId || form.items.length === 0 || !form.items[0].dishId) return
+    const data = {
+      clientId: parseInt(form.clientId),
+      weekId: week.id,
+      items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseFloat(i.quantity) || 1 })),
+      notes: form.notes,
+      has_delivery: form.has_delivery,
+      delivery_fee: Number(form.delivery_fee) || 0
+    }
+    if (!editing && (await window.piu?.clientHasOrderThisWeek(parseInt(form.clientId)))) {
+      const c = clients.find(x => x.id === parseInt(form.clientId))
+      const name = c ? `${c.name} ${c.last_name}` : 'El cliente'
+      setSecondOrderMessage(`${name} ya tiene un pedido esta semana. ¿Crear otro?`)
+      setPendingData(data)
+      setShowSecondOrderPopup(true)
+      return
+    }
+    await executeSave(data)
+  }
+
+  const handleSecondOrderConfirm = async () => {
+    setShowSecondOrderPopup(false)
+    setPendingData(null)
+    await executeSave(pendingData, true)
+  }
+
+  const handleSecondOrderCancel = () => {
+    setShowSecondOrderPopup(false)
+    setPendingData(null)
+  }
+
+  const handleContinueAdding = () => {
+    setShowConfirmPopup(false)
+    setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee })
+    requestAnimationFrame(() => {
+      const input = document.querySelector('.modal-content input, .modal-content select')
+      if (input) input.focus()
+    })
+  }
+
+  const handleStopAdding = () => {
+    setShowConfirmPopup(false)
+    setShowModal(false)
   }
 
   const handleDelete = async (id) => {
@@ -176,6 +239,7 @@ export default function Orders() {
     try {
       await window.piu?.deleteOrder(id)
       load()
+      window.dispatchEvent(new Event('piu:production-update'))
       showToast('Pedido eliminado', 'success')
     } catch (e) {
       setError('No se pudo eliminar el pedido.')
@@ -186,6 +250,7 @@ export default function Orders() {
     try {
       await window.piu?.markOrderAssembled(id)
       load()
+      window.dispatchEvent(new Event('piu:production-update'))
       showToast('Pedido ensamblado', 'success')
     } catch (e) {
       setError('No se pudo ensamblar el pedido.')
@@ -197,6 +262,7 @@ export default function Orders() {
     try {
       await window.piu?.unmarkOrderAssembled(id)
       load()
+      window.dispatchEvent(new Event('piu:production-update'))
       showToast('Pedido desempaquetado', 'success')
     } catch (e) {
       setError('No se pudo desempaquetar el pedido.')
@@ -207,6 +273,7 @@ export default function Orders() {
     try {
       await window.piu?.markOrderDelivered(id)
       load()
+      window.dispatchEvent(new Event('piu:production-update'))
       showToast('Pedido entregado', 'success')
     } catch (e) {
       setError('No se pudo marcar como entregado.')
@@ -218,6 +285,7 @@ export default function Orders() {
     try {
       await window.piu?.unmarkOrderDelivered(id)
       load()
+      window.dispatchEvent(new Event('piu:production-update'))
       showToast('Pedido reabierto', 'success')
     } catch (e) {
       setError('No se pudo reabrir el pedido.')
@@ -225,18 +293,23 @@ export default function Orders() {
   }
 
   const handlePrintLabelsView = async () => {
-    const weekData = await window.piu?.getCurrentWeek()
-    const allOrders = await window.piu?.getOrdersByWeekId(weekData.id)
-    if (!allOrders || allOrders.length === 0) {
-      showToast('No hay pedidos para esta semana.', 'info')
-      return
+    try {
+      const weekData = await window.piu?.getCurrentWeek()
+      if (!weekData) return
+      const allOrders = await window.piu?.getOrdersByWeekId(weekData.id)
+      if (!allOrders || allOrders.length === 0) {
+        showToast('No hay pedidos para esta semana.', 'info')
+        return
+      }
+      const doc = generarEtiquetasDelivery(allOrders)
+      setPdfPreview(doc)
+    } catch (e) {
+      setError('No se pudieron generar las etiquetas.')
     }
-    const doc = generarEtiquetasDelivery(allOrders)
-    setPdfPreview(doc)
   }
 
   const addItem = () => {
-    setForm(f => ({ ...f, items: [...f.items, { dishId: '', quantity: 1 }] }))
+    setForm(f => ({ ...f, items: [...f.items, makeItem()] }))
   }
 
   const removeItem = (idx) => {
@@ -255,7 +328,7 @@ export default function Orders() {
       }
       items[idx] = { ...items[idx], [field]: value }
       if (field === 'dishId' && value && idx === items.length - 1) {
-        items.push({ dishId: '', quantity: 1 })
+        items.push(makeItem())
       }
       return { ...f, items }
     })
@@ -298,7 +371,10 @@ export default function Orders() {
   )
 
   const handleNewClientSave = async () => {
+    if (savingRef.current) return
     if (!newClientForm.name.trim()) return
+    savingRef.current = true
+    setSaving(true)
     try {
       const data = {
         name: newClientForm.name.trim(),
@@ -312,14 +388,18 @@ export default function Orders() {
         const updatedClients = await window.piu?.getClients()
         setClients(updatedClients || [])
         setForm(f => ({ ...f, clientId: result.id }))
+        setShowNewClientModal(false)
+        setNewClientForm({ name: '', last_name: '', phone: '', address: '', notes: '' })
+        setClientSearch('')
+        setShowClientDropdown(false)
+        showToast('Cliente creado', 'success')
       }
     } catch (e) {
       setError('No se pudo crear el cliente.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
-    setShowNewClientModal(false)
-    setNewClientForm({ name: '', last_name: '', phone: '', address: '', notes: '' })
-    setClientSearch('')
-    setShowClientDropdown(false)
   }
 
   return (
@@ -566,8 +646,8 @@ export default function Orders() {
                   setClientSearch(e.target.value)
                   setShowClientDropdown(true)
                 }}
-                onFocus={() => setShowClientDropdown(true)}
-                onBlur={() => setTimeout(() => setShowClientDropdown(false), 200)}
+                onFocus={() => { clearTimeout(blurTimeoutRef.current); setShowClientDropdown(true) }}
+                onBlur={() => { blurTimeoutRef.current = setTimeout(() => setShowClientDropdown(false), 200) }}
                 aria-label="Buscar cliente"
               />
               {showClientDropdown && (
@@ -643,7 +723,7 @@ export default function Orders() {
             <button type="button" className="btn btn-ghost btn-sm" onClick={addItem}>+ Agregar plato</button>
           </label>
           {form.items.map((item, idx) => (
-            <div key={idx} className="form-row" style={{ marginBottom: 'var(--spacing-xs)', alignItems: 'end' }}>
+            <div key={item._key} className="form-row" style={{ marginBottom: 'var(--spacing-xs)', alignItems: 'end' }}>
               <div style={{ flex: 3 }}>
                 <select
                   value={item.dishId}
@@ -734,7 +814,7 @@ export default function Orders() {
 
         <div className="form-actions">
           <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancelar</button>
-          <button className="btn btn-primary btn-lg" onClick={handleSave}>
+          <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving}>
             {editing ? 'Guardar cambios' : 'Crear pedido'}
           </button>
         </div>
@@ -794,6 +874,22 @@ export default function Orders() {
           <button className="btn btn-primary btn-lg" onClick={handleNewClientSave}>Crear cliente</button>
         </div>
       </Modal>
+
+      <ConfirmPopup
+        isOpen={showConfirmPopup}
+        message="Pedido guardado. ¿Cargar otro?"
+        confirmLabel="Crear otro pedido"
+        onConfirm={handleContinueAdding}
+        onCancel={handleStopAdding}
+      />
+
+      <ConfirmPopup
+        isOpen={showSecondOrderPopup}
+        message={secondOrderMessage}
+        confirmLabel="Crear otro pedido"
+        onConfirm={handleSecondOrderConfirm}
+        onCancel={handleSecondOrderCancel}
+      />
 
       {pdfPreview && (
         <PdfViewer

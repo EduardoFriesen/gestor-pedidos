@@ -59,6 +59,10 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+button:active {
+  transform: scale(0.97);
+}
+
 button:focus-visible,
 a:focus-visible,
 [tabindex]:focus-visible {
@@ -284,12 +288,24 @@ textarea {
   min-height: calc(var(--touch-size) * 1.3);
 }
 
+button:disabled,
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .card {
   background: var(--bg-card);
   border: 2px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--spacing-md);
   box-shadow: var(--shadow);
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-overlay {
@@ -313,6 +329,10 @@ textarea {
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
   border: 2px solid var(--border);
+}
+
+.modal-content:focus {
+  outline: none;
 }
 
 .modal-header {
@@ -379,6 +399,11 @@ textarea {
   color: var(--danger);
 }
 
+.badge-info {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
 .empty-state {
   text-align: center;
   padding: var(--spacing-xl);
@@ -392,6 +417,31 @@ textarea {
 @keyframes skeleton-shimmer {
   0% { background-position: -400px 0; }
   100% { background-position: 400px 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes scaleOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.92); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .skeleton {
@@ -447,5 +497,16 @@ textarea {
     --font-xs: 14px;
     --spacing-md: 16px;
     --spacing-lg: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .skeleton {
+    animation: none;
   }
 }

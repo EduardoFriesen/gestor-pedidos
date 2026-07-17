@@ -4,6 +4,7 @@
   --font-xl: 48px;
   --font-sm: 18px;
   --font-xs: 16px;
+  --font-md: 22px;
 
   --spacing-xs: 8px;
   --spacing-sm: 12px;
@@ -15,7 +16,10 @@
   --radius: 12px;
   --radius-lg: 16px;
 
-  --transition: 0.15s ease;
+  --transition: 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
   letter-spacing: 0.03em;
   line-height: 1.5;
@@ -55,6 +59,8 @@
   --section-4-light: #DEEDE8;
   --section-5: #8A7B6B;
   --section-5-light: #EDE8E2;
+  --section-6: #8B7BA8;
+  --section-6-light: #E8E4F0;
 
   color-scheme: light;
 }
@@ -93,6 +99,8 @@
   --section-4-light: #203830;
   --section-5: #A89880;
   --section-5-light: #302820;
+  --section-6: #A898C0;
+  --section-6-light: #282038;
 
   color-scheme: dark;
 }
@@ -131,6 +139,8 @@
   --section-4-light: #A0B0B8;
   --section-5: #082030;
   --section-5-light: #90A0A8;
+  --section-6: #302848;
+  --section-6-light: #B0A8C0;
 
   color-scheme: light;
 }

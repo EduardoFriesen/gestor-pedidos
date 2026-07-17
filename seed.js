@@ -54,16 +54,57 @@ function getSaturday(date) {
   return d
 }
 
-function getMonthlyRate(year) {
-  if (year <= 2022) return 0.04
-  if (year === 2023) return 0.065
-  if (year === 2024) return 0.055
-  if (year === 2025) return 0.045
-  return 0.035
-}
+/**
+ * Generate monthly inflation rates that compound to ~25% annually
+ * with random variation per month and seasonal patterns.
+ *
+ * Strategy:
+ * - Target annual rate: 25% (1.25x)
+ * - Monthly base: (1.25)^(1/12) - 1 ≈ 1.877%
+ * - Each month gets a random multiplier (0.5x to 1.5x) of base rate
+ * - Re-normalized so 12 months still compound to 1.25
+ * - Extra jitter: +/- 0.3% absolute random offset
+ * - Seasonal: Q1 (Jan-Mar) slightly higher (summer demand),
+ *   Q3 (Jul-Sep) slightly lower
+ */
+function generateMonthlyRates(year) {
+  const targetAnnual = 1.25
+  const rates = []
 
-// ============== INGREDIENT CATALOG ==============
-// Base prices as of 2022-01
+  const yrSeed = year * 911
+  const localRng = (() => {
+    let s = yrSeed * 16807 + 13
+    return () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646 }
+  })()
+
+  // Generate 12 random weights, then scale so they average to 1
+  const rawWeights = []
+  for (let m = 0; m < 12; m++) {
+    // Seasonal: Q1 (Jan-Mar) higher demand, Q3 (Jul-Sep) lower
+    const seasonalWeight = (m >= 0 && m <= 2) ? 1.3 : (m >= 6 && m <= 8) ? 0.7 : 1.0
+    rawWeights.push(seasonalWeight * (0.3 + localRng() * 1.4))
+  }
+
+  const avgWeight = rawWeights.reduce((a, b) => a + b, 0) / 12
+  const normalizedWeights = rawWeights.map(w => w / avgWeight)
+
+  // Compute the monthly rate such that product(1 + base * w_m) = 1.25
+  // Use binary search
+  let lo = 0, hi = 0.1
+  for (let iter = 0; iter < 50; iter++) {
+    const mid = (lo + hi) / 2
+    const prod = normalizedWeights.reduce((p, w) => p * (1 + mid * w), 1)
+    if (prod < targetAnnual) lo = mid
+    else hi = mid
+  }
+
+  const baseRate = (lo + hi) / 2
+  for (let m = 0; m < 12; m++) {
+    rates.push(baseRate * normalizedWeights[m])
+  }
+
+  return rates
+}
 
 const INGREDIENT_CATALOG = [
   { name: 'Harina 0000', unit: 'kg', cost: 45, category: 'Secos' },
@@ -442,6 +483,51 @@ function getActiveRotationForMonth(rotationDishes, year, month) {
   return shuffled.slice(0, 10)
 }
 
+/**
+ * Precompute inflation multiplier for each month from 2022-01 to endDate.
+ * Returns Map<"year-month", factor> where factor compounds month-over-month.
+ */
+function buildInflationTable(endDate) {
+  const table = new Map()
+  let cumulative = 1
+  const startYear = 2022
+  const endYear = endDate.getFullYear()
+  const endMonth = endDate.getMonth()
+
+  // 2022-01 (month 0) is the base — cumFactor = 1
+  table.set('2022-0', 1)
+
+  for (let y = startYear; y <= endYear; y++) {
+    const rates = generateMonthlyRates(y)
+    const maxM = y === endYear ? endMonth + 1 : 12
+    for (let m = 0; m < maxM; m++) {
+      const key = `${y}-${m}`
+      if (y === startYear && m === 0) continue
+      // Apply the rate of the PREVIOUS month to move from one month to the next
+      // e.g., 2022-1 gets rates[0], 2022-2 gets rates[1], etc.
+      // For year boundary: 2023-0 gets rates[11] of previous year
+      if (m === 0) {
+        const prevRates = generateMonthlyRates(y - 1)
+        cumulative *= (1 + prevRates[11])
+      } else {
+        cumulative *= (1 + rates[m - 1])
+      }
+      table.set(key, cumulative)
+    }
+  }
+  return table
+}
+
+/**
+ * Apply inflation to a cost given base cost and cumulative multiplier.
+ * Adds random variation so ingredients in the same month don't all have
+ * the exact same price.
+ */
+function inflatedCost(baseCost, cumFactor) {
+  const variation = 0.92 + RNG() * 0.16
+  return Math.round(baseCost * cumFactor * variation * 100) / 100
+}
+
 function generateWeeks(allDishes, clients, ingredients) {
   const byName = {}
   for (const ing of ingredients) byName[ing.name] = ing
@@ -453,6 +539,8 @@ function generateWeeks(allDishes, clients, ingredients) {
   let prodId = 1
 
   const allClientIds = clients.map(c => c.id)
+  const allIngMap = {}
+  for (const ing of ingredients) allIngMap[ing.id] = ing
 
   const coreDishes = allDishes.filter(d => CORE_CATEGORIES.includes(d.category))
   const rotationDishes = allDishes.filter(d => ROTATION_CATEGORIES.includes(d.category))
@@ -462,6 +550,23 @@ function generateWeeks(allDishes, clients, ingredients) {
   const totalWeeks = Math.ceil((currentSunday.getTime() - startDate.getTime()) / (7 * 86400000))
   const weekData = []
 
+  // Build inflation table once for the entire range
+  const inflationTable = buildInflationTable(NOW)
+
+  // Track ingredient base costs (pre-inflation)
+  const baseCosts = {}
+  for (const ing of ingredients) {
+    const catalog = INGREDIENT_CATALOG.find(c => c.name === ing.name)
+    baseCosts[ing.id] = catalog ? catalog.cost : (ing.cost || 0)
+  }
+
+  // First month has cumFactor = 1 (no inflation)
+  inflationTable.set('2022-0', 1)
+
+  // Track the most recent month we've re-priced ingredients
+  let lastInflationMonth = null
+  let prevCumFactor = 1
+
   for (let i = 0; i <= totalWeeks; i++) {
     const weekStart = new Date(startDate)
     weekStart.setDate(weekStart.getDate() + i * 7)
@@ -470,17 +575,44 @@ function generateWeeks(allDishes, clients, ingredients) {
     const we = fmtDate(weekEnd)
     const isCurrent = fmtDate(currentSunday) === ws
 
-    // Calculate inflation for this week
     const weekDate = new Date(weekStart)
-    const monthsSinceStart = (weekDate.getFullYear() - 2022) * 12 + weekDate.getMonth()
-    let cumulativeFactor = 1
-    for (let m = 0; m < monthsSinceStart; m++) {
-      const y = 2022 + Math.floor((weekDate.getMonth() - m + 12) / 12) - 1
-      cumulativeFactor *= (1 + getMonthlyRate(y))
-    }
+    const monthKey = `${weekDate.getFullYear()}-${weekDate.getMonth()}`
 
     const week = { id: weekId++, week_start: ws, week_end: we, is_current: isCurrent }
     weeks.push(week)
+
+    // Re-price ingredients and dishes at the start of each new month
+    if (monthKey !== lastInflationMonth) {
+      lastInflationMonth = monthKey
+      const cumFactor = inflationTable.get(monthKey) || 1
+      const monthlyIncrease = prevCumFactor > 0 ? cumFactor / prevCumFactor : 1
+      prevCumFactor = cumFactor
+
+      // Update base ingredients
+      for (const ing of ingredients) {
+        if (!ing.subIngredients || ing.subIngredients.length === 0) {
+          ing.cost = inflatedCost(baseCosts[ing.id], cumFactor)
+        }
+      }
+
+      // Recalculate composite (sub-product) costs with updated base costs
+      const updatedIngMap = {}
+      for (const ing of ingredients) updatedIngMap[ing.name] = ing
+      for (const ing of ingredients) {
+        if (ing.subIngredients && ing.subIngredients.length > 0) {
+          ing.cost = calcCompositeCost(ing, updatedIngMap)
+        }
+      }
+
+      // Rebuild the id-based map for order item cost calculations
+      for (const ing of ingredients) allIngMap[ing.id] = ing
+
+      // Dish prices: apply monthly increase with small random jitter
+      for (const dish of allDishes) {
+        const adjIncrease = monthlyIncrease * (0.97 + RNG() * 0.06)
+        dish.price = Math.max(1000, Math.round(dish.price * adjIncrease / 100) * 100)
+      }
+    }
 
     // Determine which rotation dishes are active this month
     const activeRotation = getActiveRotationForMonth(rotationDishes, weekDate.getFullYear(), weekDate.getMonth())
@@ -522,7 +654,10 @@ function generateWeeks(allDishes, clients, ingredients) {
 
       for (const dish of itemDishes) {
         const qty = randInt(1, 3)
-        orderItems.push({ id: itemId++, order_id: order.id, dish_id: dish.id, quantity: qty })
+        const unitCost = (dish.ingredients || []).reduce((sum, ing) => {
+          return sum + (allIngMap[ing.ingredientId]?.cost || 0) * ing.quantity
+        }, 0)
+        orderItems.push({ id: itemId++, order_id: order.id, dish_id: dish.id, quantity: qty, unit_price: dish.price, unit_cost: unitCost })
       }
     }
 
@@ -572,49 +707,6 @@ function generateWeeks(allDishes, clients, ingredients) {
   const allOrderItems = weekData.flatMap(wd => wd.orderItems)
   const allProductionLogs = weekData.flatMap(wd => wd.productionLogs)
 
-  // Apply cumulative inflation to ingredient costs (2022 -> now)
-  const nowDate = new Date()
-  const finalMonths = (nowDate.getFullYear() - 2022) * 12 + nowDate.getMonth()
-  let cumFactor = 1
-  for (let m = 0; m < finalMonths; m++) {
-    const y = 2022 + Math.floor(m / 12)
-    cumFactor *= (1 + getMonthlyRate(y))
-  }
-
-  // First pass: update all base ingredient costs
-  for (const ing of ingredients) {
-    if (!ing.subIngredients || ing.subIngredients.length === 0) {
-      const base = INGREDIENT_CATALOG.find(c => c.name === ing.name)
-      if (base) {
-        const variation = 0.85 + RNG() * 0.3
-        ing.cost = Math.round(base.cost * cumFactor * variation * 100) / 100
-      }
-    }
-  }
-  // Rebuild map with updated costs
-  const updatedIngMap = {}
-  for (const ing of ingredients) updatedIngMap[ing.name] = ing
-  // Second pass: recalculate composites with updated base costs
-  for (const ing of ingredients) {
-    if (ing.subIngredients && ing.subIngredients.length > 0) {
-      ing.cost = calcCompositeCost(ing, updatedIngMap)
-    }
-  }
-
-  // Update dish prices
-  const ingMap = {}
-  for (const ing of ingredients) ingMap[ing.name] = ing
-
-  for (const dish of allDishes) {
-    let costEst = 0
-    for (const item of dish.ingredients) {
-      const ing = ingredients.find(i => i.id === item.ingredientId)
-      costEst += (ing?.cost || 0) * item.quantity
-    }
-    dish.price = Math.round(costEst * (1.5 + RNG() * 0.5) / 100) * 100
-    if (dish.price < 1000) dish.price = 1000 + randInt(0, 20) * 100
-  }
-
   return {
     weeks,
     dishes: allDishes,
@@ -659,6 +751,20 @@ function main() {
     const wc = new Set(wo.map(o => o.client_id)).size
     return `  ${w.week_start} → ${w.week_end}${w.is_current ? ' (actual)' : ''}: ${wo.length} pedidos, ${wc} clientes`
   })
+
+  // Inflation report
+  const inflTable = buildInflationTable(NOW)
+  const inflEntries = []
+  for (const [key, val] of inflTable) {
+    inflEntries.push({ key, val })
+  }
+  inflEntries.sort((a, b) => a.key.localeCompare(b.key))
+  const yearlyInflation = {}
+  for (const e of inflEntries) {
+    const y = e.key.split('-')[0]
+    if (!yearlyInflation[y]) yearlyInflation[y] = []
+    yearlyInflation[y].push(e.val)
+  }
 
   const totalRevenue = data.orders.reduce((s, o) => s + (o.delivery_fee || 0), 0)
   let dishRevenue = 0
@@ -713,6 +819,34 @@ function main() {
     console.log(`║  Cliente top: ${(topClient.name + ' ' + topClient.last_name).padEnd(24)}║`)
     console.log(`║  Pedidos del top: ${String(topClientId[1]).padStart(18)}║`)
   }
+  console.log(`╠══════════════════════════════════════╣
+║  Inflación anual (target: 25%):       ║`)
+  for (const [y, vals] of Object.entries(yearlyInflation)) {
+    // Annual rate = cumulative at Jan / cumulative at prev Jan
+    const currKey = `${y}-0`
+    const prevKey = `${parseInt(y) - 1}-0`
+    const currVal = inflTable.get(currKey)
+    const prevVal = inflTable.get(prevKey)
+    if (currVal && prevVal) {
+      const annual = (currVal / prevVal - 1) * 100
+      console.log(`  ${y}: ${annual.toFixed(1)}%`)
+    }
+  }
+
+  const firstIngCosts = INGREDIENT_CATALOG.slice(0, 5).map(c => {
+    const ing = ingredients.find(i => i.name === c.name)
+    return ing ? ing.cost : 0
+  })
+  const baseFirstCosts = INGREDIENT_CATALOG.slice(0, 5).map(c => c.cost)
+  console.log(`╠══════════════════════════════════════╣
+║  Ej. inflación ingredientes (2022→hoy):║`)
+  INGREDIENT_CATALOG.slice(0, 5).forEach((c, idx) => {
+    const ing = ingredients.find(i => i.name === c.name)
+    if (ing) {
+      const factor = ing.cost / c.cost
+      console.log(`  ${c.name}: $${c.cost} → $${ing.cost.toFixed(2)} (×${factor.toFixed(2)})`)
+    }
+  })
   console.log(`╚══════════════════════════════════════╝`)
 }
 

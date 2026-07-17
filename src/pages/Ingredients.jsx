@@ -1,11 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Modal from '../components/Modal'
 import ErrorBanner from '../components/ErrorBanner'
+import ConfirmPopup from '../components/ConfirmPopup'
 import { getCompatibleUnits, convertValue } from '../utils/units'
 import { useToast } from '../components/ToastProvider'
 
 export default function Ingredients() {
   const showToast = useToast()
+  const savingRef = useRef(false)
+  const itemKeyRef = useRef(0)
+  const [saving, setSaving] = useState(false)
+  const [justUpdatedId, setJustUpdatedId] = useState(null)
   const [ingredients, setIngredients] = useState([])
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -14,12 +19,14 @@ export default function Ingredients() {
   const [error, setError] = useState(null)
   const [priceReview, setPriceReview] = useState(null)
   const [dismissedStale, setDismissedStale] = useState(false)
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const firstInputRef = useRef(null)
 
   const load = useCallback(async () => {
     try {
       const [ing, pr] = await Promise.all([
         window.piu?.getIngredients() || Promise.resolve([]),
-        window.piu?.getPriceReview() || Promise.resolve(null)
+        window.piu?.getPriceReview(parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)) || Promise.resolve(null)
       ])
       setIngredients(ing || [])
       setPriceReview(pr)
@@ -31,17 +38,32 @@ export default function Ingredients() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    if (justUpdatedId !== null) {
+      const t = setTimeout(() => setJustUpdatedId(null), 2000)
+      return () => clearTimeout(t)
+    }
+  }, [justUpdatedId])
+
+  const makeSubRow = (ingredientId = null, quantity = 0, displayUnit = null) => ({ _key: ++itemKeyRef.current, ingredientId, quantity, displayUnit })
+
   const dismissStaleBanner = () => setDismissedStale(true)
 
   const handleMarkUpdated = async (id) => {
-    if (!window.piu?.markIngredientUpdated) return
-    await window.piu.markIngredientUpdated(id)
-    load()
+    try {
+      if (!window.piu?.markIngredientUpdated) return
+      await window.piu.markIngredientUpdated(id)
+      load()
+      setJustUpdatedId(id)
+      showToast('Costo actualizado', 'success')
+    } catch (e) {
+      console.error('Error updating ingredient cost:', e)
+    }
   }
 
   const openNew = () => {
     setEditing(null)
-    setForm({ name: '', unit: 'uni', cost: '', category: '', is_active: true, subIngredients: [{ ingredientId: null, quantity: 0, displayUnit: null }], batchYield: 1, package_qty: '', package_price: '' })
+    setForm({ name: '', unit: 'uni', cost: '', category: '', is_active: true, subIngredients: [makeSubRow()], batchYield: 1, package_qty: '', package_price: '' })
     setShowModal(true)
   }
 
@@ -59,10 +81,10 @@ export default function Ingredients() {
       subIngredients: (() => {
         const rows = (ing.subIngredients || []).map(si => {
           const subIng = ingredients.find(i => i.id === si.ingredientId)
-          return { ...si, displayUnit: subIng?.unit || null }
+          return { _key: ++itemKeyRef.current, ...si, displayUnit: subIng?.unit || null }
         })
         if (rows.length === 0 || rows[rows.length - 1].ingredientId) {
-          rows.push({ ingredientId: null, quantity: 0, displayUnit: null })
+          rows.push(makeSubRow())
         }
         return rows
       })()
@@ -71,7 +93,7 @@ export default function Ingredients() {
   }
 
   const addSubRow = () => {
-    setForm(f => ({ ...f, subIngredients: [...f.subIngredients, { ingredientId: null, quantity: 0, displayUnit: null }] }))
+    setForm(f => ({ ...f, subIngredients: [...f.subIngredients, makeSubRow()] }))
   }
 
   const removeSubRow = (index) => {
@@ -83,9 +105,9 @@ export default function Ingredients() {
       const rows = [...f.subIngredients]
       if (field === 'ingredientId') {
         const ing = ingredients.find(i => i.id === value)
-        rows[index] = { ingredientId: value, quantity: rows[index].quantity, displayUnit: ing?.unit || null }
+        rows[index] = { ...rows[index], ingredientId: value, displayUnit: ing?.unit || null }
         if (value && index === rows.length - 1) {
-          rows.push({ ingredientId: null, quantity: 0, displayUnit: null })
+          rows.push(makeSubRow())
         }
       } else {
         rows[index] = { ...rows[index], [field]: value }
@@ -111,7 +133,10 @@ export default function Ingredients() {
   const activeSimpleIngredients = ingredients.filter(i => i.is_active && (!i.subIngredients || i.subIngredients.length === 0))
 
   const handleSave = async () => {
+    if (savingRef.current) return
     if (!form.name.trim()) return
+    savingRef.current = true
+    setSaving(true)
     const data = {
       name: form.name.trim(),
       unit: form.unit,
@@ -135,25 +160,48 @@ export default function Ingredients() {
     try {
       if (editing) {
         await window.piu?.updateIngredient({ id: editing.id, ...data })
+        setShowModal(false)
       } else {
         await window.piu?.createIngredient(data)
+        setShowConfirmPopup(true)
       }
-      setShowModal(false)
       load()
       showToast('Ingrediente guardado', 'success')
     } catch (e) {
       setError('No se pudo guardar el ingrediente.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
+  const handleContinueAdding = () => {
+    setShowConfirmPopup(false)
+    setForm({ name: '', unit: 'uni', cost: '', category: '', is_active: true, subIngredients: [makeSubRow()], batchYield: 1, package_qty: '', package_price: '' })
+    requestAnimationFrame(() => {
+      if (firstInputRef.current) firstInputRef.current.focus()
+    })
+  }
+
+  const handleStopAdding = () => {
+    setShowConfirmPopup(false)
+    setShowModal(false)
+  }
+
   const handleDelete = async (id) => {
+    if (savingRef.current) return
     if (!confirm('¿Eliminar este ingrediente? Se eliminará de platos y sub-productos que lo usen.')) return
+    savingRef.current = true
+    setSaving(true)
     try {
       await window.piu?.deleteIngredient(id)
       load()
       showToast('Ingrediente eliminado', 'success')
     } catch (e) {
       setError('No se pudo eliminar el ingrediente.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
@@ -341,11 +389,15 @@ export default function Ingredients() {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                    {priceReview && (() => {
+                    {justUpdatedId === ing.id ? (
+                      <button className="btn btn-sm btn-icon-confirm" disabled>
+                        ✓ Actualizado
+                      </button>
+                    ) : priceReview && (() => {
                       const ri = priceReview.ingredients.find(i => i.id === ing.id)
                       return ri?.isStale ? (
-                        <button className="btn btn-sm btn-icon-confirm" onClick={() => handleMarkUpdated(ing.id)}>
-                          Actualizado
+                        <button className="btn btn-sm btn-icon-action" onClick={() => handleMarkUpdated(ing.id)}>
+                          Actualizar costo
                         </button>
                       ) : null
                     })()}
@@ -363,10 +415,12 @@ export default function Ingredients() {
         onClose={() => setShowModal(false)}
         title={editing ? 'Editar Ingrediente' : 'Nuevo Ingrediente'}
       >
-        <div className="form-group">
+        <div style={{ position: 'relative' }}>
+          <div className="form-group">
           <label htmlFor="ing-name">Nombre del ingrediente</label>
           <input
             id="ing-name"
+            ref={firstInputRef}
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             placeholder="Ej: Harina 0000"
@@ -510,7 +564,7 @@ export default function Ingredients() {
               : rawSiQty
             const siSubtotal = siInfo ? siInfo.cost * siQtyInUnit : 0
             return (
-              <div key={index} style={{
+              <div key={si._key} style={{
                 display: 'flex',
                 gap: 'var(--spacing-sm)',
                 alignItems: 'flex-end',
@@ -604,11 +658,19 @@ export default function Ingredients() {
 
         <div className="form-actions">
           <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancelar</button>
-          <button className="btn btn-primary btn-lg" onClick={handleSave}>
+          <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving}>
             {editing ? 'Guardar cambios' : 'Crear ingrediente'}
           </button>
         </div>
+        </div>
       </Modal>
+      <ConfirmPopup
+        isOpen={showConfirmPopup}
+        message="Ingrediente guardado. ¿Cargar otro?"
+        confirmLabel="Sí"
+        onConfirm={handleContinueAdding}
+        onCancel={handleStopAdding}
+      />
     </div>
   )
 }

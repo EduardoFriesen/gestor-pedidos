@@ -1,6 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { SkeletonAnalytics } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
+import StatCard from '../components/charts/StatCard'
+import BarChart from '../components/charts/BarChart'
+import GroupedBarChart from '../components/charts/GroupedBarChart'
+import PieChart from '../components/charts/PieChart'
+import { useHeaderContent } from '../components/HeaderContext'
 
 const PRESETS = [
   { id: 'week', label: 'Esta semana' },
@@ -105,8 +110,175 @@ export default function Analytics() {
   const [dishPage, setDishPage] = useState(0)
   const [clientPage, setClientPage] = useState(0)
   const LIST_PAGE_SIZE = 5
+  const loadIdRef = useRef(0)
+  const compLoadIdRef = useRef(0)
+  const { setHeaderContent } = useHeaderContent()
+
+  useEffect(() => {
+    setHeaderContent(
+      <div style={{ padding: 'var(--spacing-sm)', background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+        <div style={{
+          display: 'flex',
+          gap: 'var(--spacing-xs)',
+          marginBottom: 'var(--spacing-xs)',
+          flexWrap: 'wrap',
+          alignItems: 'center'
+        }}>
+          <h2 style={{ margin: 0, marginRight: 'auto' }}>Análisis</h2>
+          {PRESETS.map(p => (
+            <button
+              key={p.id}
+              className={filterPreset === p.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+              onClick={() => handleFilterChange(p.id)}
+              style={{ fontSize: 'var(--font-sm)' }}
+            >
+              {p.label}
+            </button>
+          ))}
+          {filterPreset === 'custom' && (
+            <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center' }}>
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
+              <span style={{ fontSize: 'var(--font-sm)' }}>a</span>
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
+              <button className="btn btn-primary btn-sm" onClick={handleCustomFilter}>Filtrar</button>
+            </div>
+          )}
+          <button className="btn btn-outline btn-sm" onClick={handleExcelExport}>↓ Excel</button>
+        </div>
+
+        <div style={{
+          display: 'flex',
+          gap: 'var(--spacing-xs)',
+          marginBottom: 'var(--spacing-xs)',
+          flexWrap: 'wrap'
+        }}>
+          <StatCard label="Pedidos" value={analytics?.totalOrders || 0} />
+          <StatCard label="Ingresos" value={fmtMoney(analytics?.revenue || 0)} highlight="var(--success)" />
+          <StatCard label="Costo total" value={fmtMoney(analytics?.totalCost || 0)} highlight="var(--danger)" />
+          <StatCard
+            label="Ganancia neta"
+            value={fmtMoney(analytics?.totalProfit || 0)}
+            highlight={(analytics?.totalProfit || 0) >= 0 ? 'var(--primary)' : 'var(--danger)'}
+          />
+          {analytics?.revenue > 0 && analytics?.totalCost > 0 && (
+            <StatCard
+              label="Margen %"
+              value={pct((analytics.revenue - analytics.totalCost) / analytics.revenue * 100)}
+              highlight="var(--accent)"
+            />
+          )}
+          {overproduction && (
+            <StatCard
+              label={overproduction.totalOverproductionCost > 0 ? 'Desperdicio' : 'Desperdicio'}
+              value={fmtMoney(overproduction.totalOverproductionCost)}
+              highlight={overproduction.totalOverproductionCost > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
+            />
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 'var(--spacing-xs)', flexWrap: 'wrap', alignItems: 'center' }}>
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              className={tab === t.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+          {tab === 'top' && (
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Buscar plato..."
+                aria-label="Buscar plato"
+                value={searchDish}
+                onChange={e => setSearchDish(e.target.value)}
+                style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}
+              />
+              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Ordenar:</span>
+              {[
+                { id: 'total', label: 'Vendidos' },
+                { id: 'totalProfit', label: 'Ganancia' },
+                { id: 'margin', label: 'Margen %' },
+                { id: 'price', label: 'Precio' }
+              ].map(s => (
+                <button
+                  key={s.id}
+                  className={dishSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+                  onClick={() => {
+                    if (dishSort === s.id) {
+                      setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                    } else {
+                      setDishSort(s.id)
+                      setDishSortDir('asc')
+                    }
+                  }}
+                  style={{ fontSize: 'var(--font-sm)' }}
+                >
+                  {s.label}
+                </button>
+              ))}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
+                aria-label="Cambiar dirección de orden"
+              >
+                {dishSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+          )}
+          {tab === 'clients' && (
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Buscar cliente..."
+                aria-label="Buscar cliente"
+                value={searchClient}
+                onChange={e => setSearchClient(e.target.value)}
+                style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}
+              />
+              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Ordenar:</span>
+              {[
+                { id: 'orders', label: 'Pedidos' },
+                { id: 'dishes', label: 'Platos' },
+                { id: 'revenue', label: 'Gastado' }
+              ].map(s => (
+                <button
+                  key={s.id}
+                  className={clientSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
+                  onClick={() => {
+                    if (clientSort === s.id) {
+                      setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                    } else {
+                      setClientSort(s.id)
+                      setClientSortDir('asc')
+                    }
+                  }}
+                  style={{ fontSize: 'var(--font-sm)' }}
+                >
+                  {s.label}
+                </button>
+              ))}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
+                aria-label="Cambiar dirección de orden"
+              >
+                {clientSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+    return () => setHeaderContent(null)
+  }, [analytics, tab, filterPreset, customStart, customEnd, overproduction, searchDish, dishSort, dishSortDir, searchClient, clientSort, clientSortDir])
 
   const loadAll = useCallback(async (preset, start, end) => {
+    const id = ++loadIdRef.current
     try {
       const { startDate, endDate } = preset === 'custom'
         ? { startDate: start || null, endDate: end || null }
@@ -117,11 +289,13 @@ export default function Analytics() {
         window.piu?.getTrendsInRange(startDate, endDate) || Promise.resolve(null),
         window.piu?.getOverproductionInRange(startDate, endDate) || Promise.resolve(null)
       ])
+      if (id !== loadIdRef.current) return
       setAnalytics(a)
       setTrends(t || { weekly: [], monthly: [], quarterly: [], yearly: [] })
       setOverproduction(ov || null)
       setError(null)
     } catch (e) {
+      if (id !== loadIdRef.current) return
       setError('No se pudieron cargar los datos de analytics.')
     }
   }, [])
@@ -169,15 +343,18 @@ export default function Analytics() {
     if (!ft) return []
     switch (preset) {
       case 'week':
-        return (ft.weekly || []).map(w => ({
-          label: `Semana del ${formatDate(w.week_start)}`,
-          value: w.week_start, startDate: w.week_start, endDate: w.week_start
-        }))
+        return (ft.weekly || []).map(w => {
+          const [y, m, d] = w.week_start.split('-').map(Number)
+          const sat = new Date(y, m - 1, d + 6)
+          const end = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, '0')}-${String(sat.getDate()).padStart(2, '0')}`
+          return { label: `Semana del ${formatDate(w.week_start)}`, value: w.week_start, startDate: w.week_start, endDate: end }
+        })
       case 'month':
-        return (ft.monthly || []).map(m => ({
-          label: m.month, value: m.month,
-          startDate: m.month + '-01', endDate: m.month + '-31'
-        }))
+        return (ft.monthly || []).map(m => {
+          const [y, mo] = m.month.split('-').map(Number)
+          const lastDay = new Date(y, mo, 0).getDate()
+          return { label: m.month, value: m.month, startDate: m.month + '-01', endDate: `${m.month}-${String(lastDay).padStart(2, '0')}` }
+        })
       case 'quarter':
         return getQuarterOptions(ft)
       case 'year':
@@ -214,13 +391,16 @@ export default function Analytics() {
   const [compP2Value, setCompP2Value] = useState('')
 
   const runComparison = (p1Val, p2Val) => {
+    const id = ++compLoadIdRef.current
     if (filterPreset === 'custom' || filterPreset === 'all') {
       const p1s = compCustomP1Start || null
       const p1e = compCustomP1End || null
       const p2s = compCustomP2Start || null
       const p2e = compCustomP2End || null
       if (p1s && p2s) {
-        window.piu?.getPeriodComparison(p1s, p1e, p2s, p2e).then(setComparison).catch(() => setError('No se pudo generar la comparación.'))
+        window.piu?.getPeriodComparison(p1s, p1e, p2s, p2e).then(r => {
+          if (id === compLoadIdRef.current) setComparison(r)
+        }).catch(() => { if (id === compLoadIdRef.current) setError('No se pudo generar la comparación.') })
       }
     } else {
       const opts = getPeriodOptions(filterPreset, fullTrends)
@@ -228,7 +408,9 @@ export default function Analytics() {
       const opt2 = opts.find(o => o.value === p2Val)
       if (opt1 && opt2) {
         setComparison(null)
-        window.piu?.getPeriodComparison(opt1.startDate, opt1.endDate, opt2.startDate, opt2.endDate).then(setComparison).catch(() => setError('No se pudo generar la comparación.'))
+        window.piu?.getPeriodComparison(opt1.startDate, opt1.endDate, opt2.startDate, opt2.endDate).then(r => {
+          if (id === compLoadIdRef.current) setComparison(r)
+        }).catch(() => { if (id === compLoadIdRef.current) setError('No se pudo generar la comparación.') })
       }
     }
   }
@@ -248,11 +430,7 @@ export default function Analytics() {
         }
       }
     }
-  }, [tab, filterPreset, fullTrends, compCustomP1Start, compCustomP1End, compCustomP2Start, compCustomP2End])
-
-  if (!analytics) {
-    return <SkeletonAnalytics />
-  }
+  }, [tab, filterPreset, fullTrends])
 
   const tabs = [
     { id: 'top', label: 'Top Platos' },
@@ -261,95 +439,16 @@ export default function Analytics() {
     { id: 'comparison', label: 'Comparativa' }
   ]
 
+  if (!analytics) {
+    return <SkeletonAnalytics />
+  }
+
   return (
     <div>
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 'var(--spacing-md)'
-      }}>
-        <h2>Análisis</h2>
-      </div>
-
-      <div style={{
-        display: 'flex',
-        gap: 'var(--spacing-xs)',
-        marginBottom: 'var(--spacing-md)',
-        flexWrap: 'wrap',
-        alignItems: 'center'
-      }}>
-        <span style={{ fontSize: 'var(--font-sm)', fontWeight: 700, color: 'var(--text-secondary)', marginRight: 'var(--spacing-sm)' }}>
-          Período:
-        </span>
-        {PRESETS.map(p => (
-          <button
-            key={p.id}
-            className={filterPreset === p.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-            onClick={() => handleFilterChange(p.id)}
-            style={{ fontSize: 'var(--font-sm)' }}
-          >
-            {p.label}
-          </button>
-        ))}
-        {filterPreset === 'custom' && (
-          <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center', marginLeft: 'var(--spacing-sm)' }}>
-            <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
-            <span style={{ fontSize: 'var(--font-sm)' }}>a</span>
-            <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={{ width: '150px', fontSize: 'var(--font-sm)' }} />
-            <button className="btn btn-primary btn-sm" onClick={handleCustomFilter}>Filtrar</button>
-          </div>
-        )}
-        <div style={{ marginLeft: 'auto' }}>
-          <button className="btn btn-outline btn-sm" onClick={handleExcelExport}>↓ Excel</button>
-        </div>
-      </div>
-
-      <div style={{
-        display: 'flex',
-        gap: 'var(--spacing-xs)',
-        marginBottom: 'var(--spacing-md)',
-        flexWrap: 'wrap'
-      }}>
-        <StatCard label="Pedidos" value={analytics.totalOrders} />
-        <StatCard label="Ingresos" value={fmtMoney(analytics.revenue)} highlight="var(--success)" />
-        <StatCard label="Costo total" value={fmtMoney(analytics.totalCost)} highlight="var(--danger)" />
-        <StatCard
-          label="Ganancia neta"
-          value={fmtMoney(analytics.totalProfit)}
-          highlight={(analytics.totalProfit || 0) >= 0 ? 'var(--primary)' : 'var(--danger)'}
-        />
-        {analytics.revenue > 0 && analytics.totalCost > 0 && (
-          <StatCard
-            label="Margen %"
-            value={pct((analytics.revenue - analytics.totalCost) / analytics.revenue * 100)}
-            highlight="var(--accent)"
-          />
-        )}
-        {overproduction && (
-          <StatCard
-            label={overproduction.totalOverproductionCost > 0 ? 'Desperdicio' : 'Desperdicio'}
-            value={fmtMoney(overproduction.totalOverproductionCost)}
-            highlight={overproduction.totalOverproductionCost > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
-          />
-        )}
-      </div>
-
-      <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-lg)', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg)', paddingTop: 'var(--spacing-xs)', paddingBottom: 'var(--spacing-xs)' }}>
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            className={tab === t.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'top' && (() => {
+      <div key={tab} style={{ animation: 'slideUp 250ms var(--ease-out-quart)' }}>
+        {tab === 'top' && (() => {
         const sortedDishes = analytics.topDishes
           .filter(d => !searchDish || (d.name || '').toLowerCase().includes(searchDish.toLowerCase()))
           .sort((a, b) => {
@@ -382,53 +481,12 @@ export default function Analytics() {
 
         return (
           <>
-            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                placeholder="Buscar plato..."
-                aria-label="Buscar plato"
-                value={searchDish}
-                onChange={e => setSearchDish(e.target.value)}
-                style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}
-              />
-              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Ordenar:</span>
-              {[
-                { id: 'total', label: 'Vendidos' },
-                { id: 'totalProfit', label: 'Ganancia' },
-                { id: 'margin', label: 'Margen %' },
-                { id: 'price', label: 'Precio' }
-              ].map(s => (
-                <button
-                  key={s.id}
-                  className={dishSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-                  onClick={() => {
-                    if (dishSort === s.id) {
-                      setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')
-                    } else {
-                      setDishSort(s.id)
-                      setDishSortDir('asc')
-                    }
-                  }}
-                  style={{ fontSize: 'var(--font-sm)' }}
-                >
-                  {s.label}
-                </button>
-              ))}
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
-                aria-label="Cambiar dirección de orden"
-              >
-                {dishSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
-              </button>
-            </div>
             <div style={{ display: 'flex', gap: 'var(--spacing-lg)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 60%', minWidth: 0 }}>
                 {analytics.topDishes.length === 0 ? (
                 <div className="empty-state card"><p>No hay platos con pedidos en este período. Probá cambiando el filtro de fecha.</p></div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+                <div key={dishPage} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', animation: 'slideUp 250ms var(--ease-out-quart)' }}>
                   {sortedDishes.slice(dishPage * LIST_PAGE_SIZE, (dishPage + 1) * LIST_PAGE_SIZE).map((d, i, arr) => {
                     const globalIdx = dishPage * LIST_PAGE_SIZE + i
                     const maxVal = arr.length > 0 ? Math.max(...arr.map(x => dishSort === 'total' ? x.total : dishSort === 'totalProfit' ? x.totalProfit : dishSort === 'margin' ? (x.profit || 0) : x.price)) : 1
@@ -477,7 +535,7 @@ export default function Analytics() {
                       }
                     }
                     return (
-                      <div key={d.name} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                      <div key={d.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
                           <span style={{ fontSize: 'var(--font-sm)', fontWeight: 900, color: 'var(--primary)', minWidth: '28px' }}>#{globalIdx + 1}</span>
                           <div style={{ flex: 1 }}>
@@ -511,7 +569,13 @@ export default function Analytics() {
                             </div>
                           </div>
                         </div>
-                        {isExpanded && (
+                        <div style={{
+                          maxHeight: isExpanded ? '2500px' : '0',
+                          opacity: isExpanded ? 1 : 0,
+                          overflow: 'hidden',
+                          transition: 'max-height 500ms ease-out, opacity 300ms ease-out'
+                        }}>
+                          {isExpanded && (
                           <div style={{
                             padding: 'var(--spacing-sm) var(--spacing-md)',
                             background: 'var(--bg)',
@@ -669,6 +733,7 @@ export default function Analytics() {
                             )}
                           </div>
                         )}
+                        </div>
                       </div>
                     )
                   })}
@@ -690,8 +755,8 @@ export default function Analytics() {
                 )
               })()}
               </div>
-              <div style={{ flex: '1 1 280px', minWidth: '280px' }}>
-                {sortedDishes.length > 0 && <PieChart data={dishPieData} title="Distribución" />}
+              <div style={{ flex: '0 0 360px' }}>
+                {sortedDishes.length > 0 && <PieChart data={dishPieData} title="Distribución" size={260} />}
               </div>
             </div>
           </>
@@ -725,57 +790,17 @@ export default function Analytics() {
 
         return (
           <>
-            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                placeholder="Buscar cliente..."
-                aria-label="Buscar cliente"
-                value={searchClient}
-                onChange={e => setSearchClient(e.target.value)}
-                style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}
-              />
-              <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Ordenar:</span>
-              {[
-                { id: 'orders', label: 'Pedidos' },
-                { id: 'dishes', label: 'Platos' },
-                { id: 'revenue', label: 'Gastado' }
-              ].map(s => (
-                <button
-                  key={s.id}
-                  className={clientSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-                  onClick={() => {
-                    if (clientSort === s.id) {
-                      setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')
-                    } else {
-                      setClientSort(s.id)
-                      setClientSortDir('asc')
-                    }
-                  }}
-                  style={{ fontSize: 'var(--font-sm)' }}
-                >
-                  {s.label}
-                </button>
-              ))}
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
-                aria-label="Cambiar dirección de orden"
-              >
-                {clientSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
-              </button>
-            </div>
             <div style={{ display: 'flex', gap: 'var(--spacing-lg)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 60%', minWidth: 0 }}>
                 {analytics.topClients.length === 0 ? (
                 <div className="empty-state card"><p>No hay clientes con pedidos en este período. Probá cambiando el filtro de fecha.</p></div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+                <div key={clientPage} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', animation: 'fadeIn 200ms ease-out' }}>
                   {sortedClients.slice(clientPage * LIST_PAGE_SIZE, (clientPage + 1) * LIST_PAGE_SIZE).map((c, i, arr) => {
                     const globalIdx = clientPage * LIST_PAGE_SIZE + i
                     const maxVal = arr.length > 0 ? Math.max(...arr.map(x => clientSort === 'orders' ? x.order_count : clientSort === 'dishes' ? x.total_dishes : x.totalRevenue || 0)) : 1
                     const barPct = maxVal > 0 ? Math.round(((clientSort === 'orders' ? c.order_count : clientSort === 'dishes' ? c.total_dishes : c.totalRevenue || 0) / maxVal) * 100) : 0
-                    const cKey = `${c.name}-${c.last_name}`
+                    const cKey = `${c.clientId}`
                     const isExpanded = expandedClient === cKey
                     const loadTimeSeries = async () => {
                       if (isExpanded) { setExpandedClient(null); return }
@@ -817,7 +842,13 @@ export default function Analytics() {
                             </div>
                           </div>
                         </div>
-                        {isExpanded && clientTimeSeries.length > 0 && (
+                        <div style={{
+                          maxHeight: isExpanded ? '2000px' : '0',
+                          opacity: isExpanded ? 1 : 0,
+                          overflow: 'hidden',
+                          transition: 'max-height 500ms ease-out, opacity 300ms ease-out'
+                        }}>
+                          {isExpanded && clientTimeSeries.length > 0 && (
                           filterPreset === 'week' ? (
                             <div style={{
                               padding: 'var(--spacing-sm) var(--spacing-md)',
@@ -855,7 +886,8 @@ export default function Analytics() {
                               />
                             </div>
                           )
-                        )}
+                          )}
+                        </div>
                       </div>
                     )
                   })}
@@ -877,8 +909,8 @@ export default function Analytics() {
                 )
               })()}
               </div>
-              <div style={{ flex: '1 1 280px', minWidth: '280px' }}>
-                {sortedClients.length > 0 && <PieChart data={clientPieData} title="Distribución" />}
+              <div style={{ flex: '0 0 360px' }}>
+                {sortedClients.length > 0 && <PieChart data={clientPieData} title="Distribución" size={260} />}
               </div>
             </div>
           </>
@@ -1044,6 +1076,7 @@ export default function Analytics() {
                 <span style={{ fontSize: 'var(--font-xs)' }}>—</span>
                 <input type="date" value={compCustomP2End} onChange={e => setCompCustomP2End(e.target.value)} style={{ width: 130, fontSize: 'var(--font-sm)' }} />
               </div>
+              <button className="btn btn-primary btn-sm" onClick={() => runComparison()}>Comparar</button>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -1212,137 +1245,8 @@ export default function Analytics() {
           })()}
         </div>
       )}
-
-    </div>
-  )
-}
-
-function StatCard({ label, value, highlight }) {
-  const strVal = String(value || '')
-  const fontSize = strVal.length > 14 ? 'var(--font-lg)' : strVal.length > 10 ? 'calc(var(--font-xl) * 0.8)' : 'var(--font-xl)'
-  return (
-    <div className="card" style={{ flex: '1 1 0', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-      <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-xs)' }}>{label}</p>
-      <p style={{ fontSize, fontWeight: 900, color: highlight || 'var(--text)', whiteSpace: 'nowrap' }}>{value}</p>
-    </div>
-  )
-}
-
-function BarChart({ data, labelKey, valueKey, barColor, formatLabel, currentKey, formatValue, scrollable = true }) {
-  const max = Math.max(...data.map(x => x[valueKey] || 0), 1)
-  const inner = (
-    <div style={{
-      display: 'flex', alignItems: 'flex-end', gap: 'calc(var(--spacing-sm) * 0.5)',
-      height: 'calc(var(--font-body) * 5 + 30px)', padding: 'var(--spacing-sm) var(--spacing-xs)',
-      minWidth: `${Math.max(data.length * 95, 200)}px`
-    }}>
-      {data.map((item) => {
-        const val = item[valueKey] || 0
-        const p = val / max
-        const key = item[labelKey]
-        const isCurrent = currentKey === key
-        return (
-          <div key={key} style={{ flex: '0 0 90px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
-            <div style={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-              <div style={{
-                width: '80%', margin: '0 auto', height: `${Math.max(p * 100, 2)}%`, minHeight: '4px',
-                background: isCurrent ? 'var(--accent)' : barColor,
-                borderRadius: '2px 2px 0 0', transition: 'height 0.5s ease'
-              }} />
-            </div>
-            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2px' }}>
-              {formatLabel ? formatLabel(key) : key}
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-  return scrollable ? <div style={{ overflowX: 'auto' }}>{inner}</div> : inner
-}
-
-function GroupedBarChart({ data, labelKey, series, formatLabel, currentKey, formatValue, scrollable = true }) {
-  const maxVal = Math.max(...data.flatMap(item => series.map(s => item[s.key] || 0)), 1)
-  const inner = (
-    <div style={{
-      display: 'flex', alignItems: 'flex-end', gap: 'var(--spacing-md)',
-      height: 'calc(var(--font-body) * 7 + 50px)', padding: 'var(--spacing-md)',
-      minWidth: `${Math.max(data.length * 120, 300)}px`
-    }}>
-      {data.map((item) => {
-        const key = item[labelKey]
-        const isCurrent = currentKey === key
-        return (
-          <div key={key} style={{ flex: '0 0 100px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
-            <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: '3px' }}>
-              {series.map(s => {
-                const val = item[s.key] || 0
-                const pct = val / maxVal * 100
-                return (
-                  <div key={s.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-                    <span style={{ fontSize: 'var(--font-sm)', fontWeight: 700, lineHeight: 1, marginBottom: '2px', whiteSpace: 'nowrap' }}>
-                      {formatValue ? formatValue(val) : val}
-                    </span>
-                    <div style={{
-                      width: '100%', height: `${Math.max(pct, 2)}%`, minHeight: '4px',
-                      background: s.color, borderRadius: '3px 3px 0 0', transition: 'height 0.5s ease',
-                      opacity: isCurrent ? 1 : 0.8
-                    }} />
-                  </div>
-                )
-              })}
-            </div>
-            <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)' }}>
-              {series.map(s => (
-                <span key={s.key} style={{ fontSize: 'var(--font-xs)', color: s.color, fontWeight: 700 }}>{s.label[0]}</span>
-              ))}
-            </div>
-            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: isCurrent ? 700 : 400, textAlign: 'center', marginTop: '2px' }}>
-              {formatLabel ? formatLabel(key) : key}{isCurrent ? ' *' : ''}
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-  return scrollable ? <div className="card" style={{ overflowX: 'auto' }}>{inner}</div> : inner
-}
-
-function PieChart({ data, size = 200, title }) {
-  const total = data.reduce((s, d) => s + d.value, 0)
-  if (total === 0) return null
-  const cx = size / 2, cy = size / 2, r = size / 2 - 8, ir = size / 4
-  let acc = 0
-  const slices = data.map(d => {
-    const pct = d.value / total
-    const startAngle = acc * 2 * Math.PI - Math.PI / 2
-    acc += pct
-    const endAngle = acc * 2 * Math.PI - Math.PI / 2
-    const largeArc = pct > 0.5 ? 1 : 0
-    const x1o = cx + r * Math.cos(startAngle), y1o = cy + r * Math.sin(startAngle)
-    const x2o = cx + r * Math.cos(endAngle), y2o = cy + r * Math.sin(endAngle)
-    const x1i = cx + ir * Math.cos(endAngle), y1i = cy + ir * Math.sin(endAngle)
-    const x2i = cx + ir * Math.cos(startAngle), y2i = cy + ir * Math.sin(startAngle)
-    const path = `M${x1o},${y1o} A${r},${r} 0 ${largeArc} 1 ${x2o},${y2o} L${x1i},${y1i} A${ir},${ir} 0 ${largeArc} 0 ${x2i},${y2i} Z`
-    return { ...d, path, pct }
-  })
-  return (
-    <div className="card" style={{ padding: 'var(--spacing-md)' }}>
-      {title && <h4 style={{ marginBottom: 'var(--spacing-sm)', textAlign: 'center' }}>{title}</h4>}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', justifyContent: 'center', flexWrap: 'wrap' }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} opacity={0.85} />)}
-        </svg>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: 'var(--font-xs)' }}>
-          {slices.map((s, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-              <span style={{ width: '12px', height: '12px', borderRadius: '3px', background: s.color, flexShrink: 0 }} />
-              <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{s.name}</span>
-              <span style={{ fontWeight: 700 }}>{s.pct > 0.05 ? `${(s.pct * 100).toFixed(0)}%` : ''}</span>
-            </div>
-          ))}
-        </div>
       </div>
+
     </div>
   )
 }

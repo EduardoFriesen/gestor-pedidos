@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 const themes = [
   { id: 'claro', label: '☀️ Claro', desc: 'Fondo crema suave, texto oscuro' },
@@ -16,6 +16,8 @@ function setThreshold(days) {
 
 export default function Settings({ theme, setTheme, macroMode, setMacroMode, fontSize, setFontSize }) {
   const [threshold, setLocalThreshold] = React.useState(getThreshold)
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const handleThresholdChange = (e) => {
     const v = Math.max(1, parseInt(e.target.value, 10) || 1)
@@ -24,6 +26,8 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
   }
 
   const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
     try {
       const data = await window.piu?.getExportData()
       if (!data) return
@@ -33,16 +37,20 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
       await window.piu?.saveFile({ content, defaultName, ext: 'json' })
     } catch (e) {
       console.error('Export error:', e)
+    } finally {
+      setExporting(false)
     }
   }
 
   const handleImport = async () => {
+    if (importing) return
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.json'
     input.onchange = async (e) => {
       const file = e.target.files?.[0]
       if (!file) return
+      setImporting(true)
       try {
         const text = await file.text()
         const parsed = JSON.parse(text)
@@ -58,6 +66,8 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
         window.location.reload()
       } catch (err) {
         alert('Error al leer el archivo: ' + err.message)
+      } finally {
+        setImporting(false)
       }
     }
     input.click()
@@ -172,8 +182,12 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
             Exportá todos los datos como archivo JSON para migrar a otra PC o restaurar después de un problema.
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
-            <button className="btn btn-outline btn-sm" onClick={handleExport}>↓ Exportar Datos</button>
-            <button className="btn btn-outline btn-sm" onClick={handleImport}>↑ Importar Datos</button>
+            <button className="btn btn-outline btn-sm" onClick={handleExport} disabled={exporting}>
+              {exporting ? 'Exportando...' : '↓ Exportar Datos'}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={handleImport} disabled={importing}>
+              {importing ? 'Importando...' : '↑ Importar Datos'}
+            </button>
           </div>
         </div>
 

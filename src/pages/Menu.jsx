@@ -1,11 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Modal from '../components/Modal'
 import ErrorBanner from '../components/ErrorBanner'
+import ConfirmPopup from '../components/ConfirmPopup'
 import { getCompatibleUnits, convertValue } from '../utils/units'
 import { useToast } from '../components/ToastProvider'
 
 export default function Menu() {
   const showToast = useToast()
+  const savingRef = useRef(false)
+  const itemKeyRef = useRef(0)
+  const [saving, setSaving] = useState(false)
   const [dishes, setDishes] = useState([])
   const [allIngredients, setAllIngredients] = useState([])
   const [search, setSearch] = useState('')
@@ -22,13 +26,15 @@ export default function Menu() {
   const [priceReview, setPriceReview] = useState(null)
   const [dismissedStale, setDismissedStale] = useState(false)
   const [dismissedPriceReview, setDismissedPriceReview] = useState(false)
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const firstInputRef = useRef(null)
 
   const load = useCallback(async () => {
     try {
       const [d, ing, pr] = await Promise.all([
         (window.piu?.getDishes() || Promise.resolve([])),
         (window.piu?.getIngredients() || Promise.resolve([])),
-        (window.piu?.getPriceReview() || Promise.resolve(null))
+        (window.piu?.getPriceReview(parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)) || Promise.resolve(null))
       ])
       setDishes(d || [])
       setAllIngredients(ing || [])
@@ -41,15 +47,22 @@ export default function Menu() {
 
   useEffect(() => { load() }, [load])
 
+  const makeRow = (ingredientId = null, quantity = 0, displayUnit = null) => ({ _key: ++itemKeyRef.current, ingredientId, quantity, displayUnit })
+
   const handleMarkDishUpdated = async (id) => {
-    if (!window.piu?.markDishPriceUpdated) return
-    await window.piu.markDishPriceUpdated(id)
-    load()
+    try {
+      if (!window.piu?.markDishPriceUpdated) return
+      await window.piu.markDishPriceUpdated(id)
+      load()
+      showToast('Revisión de precio actualizada', 'success')
+    } catch (e) {
+      console.error('Error updating dish price:', e)
+    }
   }
 
   const openNew = () => {
     setEditing(null)
-    setForm({ name: '', category: '', price: '', ingredientRows: [{ ingredientId: null, quantity: 0, displayUnit: null }], is_active: true })
+    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true })
     setShowModal(true)
   }
 
@@ -58,9 +71,9 @@ export default function Menu() {
     const rows = (dish.ingredients || []).length > 0
       ? dish.ingredients.map(i => {
           const ing = allIngredients.find(x => x.id === i.ingredientId)
-          return { ingredientId: i.ingredientId, quantity: i.quantity, displayUnit: ing?.unit || null }
+          return makeRow(i.ingredientId, i.quantity, ing?.unit || null)
         })
-      : [{ ingredientId: null, quantity: 0, displayUnit: null }]
+      : [makeRow()]
     setForm({
       name: dish.name,
       category: dish.category || '',
@@ -72,13 +85,13 @@ export default function Menu() {
   }
 
   const addRow = () => {
-    setForm(f => ({ ...f, ingredientRows: [...f.ingredientRows, { ingredientId: null, quantity: 0, displayUnit: null }] }))
+    setForm(f => ({ ...f, ingredientRows: [...f.ingredientRows, makeRow()] }))
   }
 
   const removeRow = (index) => {
     setForm(f => {
       const rows = f.ingredientRows.filter((_, i) => i !== index)
-      return { ...f, ingredientRows: rows.length === 0 ? [{ ingredientId: null, quantity: 0 }] : rows }
+      return { ...f, ingredientRows: rows.length === 0 ? [makeRow()] : rows }
     })
   }
 
@@ -92,9 +105,9 @@ export default function Menu() {
           return f
         }
         const ing = allIngredients.find(i => i.id === value)
-        rows[index] = { ingredientId: value, quantity: rows[index].quantity, displayUnit: ing?.unit || null }
+        rows[index] = { ...rows[index], ingredientId: value, displayUnit: ing?.unit || null }
         if (value && index === rows.length - 1) {
-          rows.push({ ingredientId: null, quantity: 0, displayUnit: null })
+          rows.push(makeRow())
         }
       } else {
         rows[index] = { ...rows[index], [field]: value }
@@ -123,7 +136,10 @@ export default function Menu() {
   const margin = dishPrice > 0 ? ((dishPrice - totalCost) / dishPrice * 100) : 0
 
   const handleSave = async () => {
+    if (savingRef.current) return
     if (!form.name.trim()) return
+    savingRef.current = true
+    setSaving(true)
     const data = {
       name: form.name.trim(),
       category: form.category,
@@ -143,19 +159,39 @@ export default function Menu() {
     try {
       if (editing) {
         await window.piu?.updateDish({ id: editing.id, ...data })
+        setShowModal(false)
       } else {
         await window.piu?.createDish(data)
+        setShowConfirmPopup(true)
       }
-      setShowModal(false)
       load()
       showToast('Plato guardado', 'success')
     } catch (e) {
       setError('No se pudo guardar el plato.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
+  const handleContinueAdding = () => {
+    setShowConfirmPopup(false)
+    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true })
+    requestAnimationFrame(() => {
+      if (firstInputRef.current) firstInputRef.current.focus()
+    })
+  }
+
+  const handleStopAdding = () => {
+    setShowConfirmPopup(false)
+    setShowModal(false)
+  }
+
   const handleDelete = async (id) => {
+    if (savingRef.current) return
     if (!confirm('¿Eliminar este plato?')) return
+    savingRef.current = true
+    setSaving(true)
     try {
       const res = await window.piu?.deleteDish(id)
       if (res && !res.success && res.reason === 'has_orders') {
@@ -166,6 +202,9 @@ export default function Menu() {
       showToast('Plato eliminado', 'success')
     } catch (e) {
       setError('No se pudo eliminar el plato.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
@@ -294,19 +333,26 @@ export default function Menu() {
         )
       })()}
 
-      {priceReview && !dismissedPriceReview && priceReview.ingredients.filter(i => i.isStale).length === 0 && priceReview.dishPrices.length > 0 && (
-        <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 'var(--spacing-sm)'
-          }}>
-            <h3 style={{ margin: 0 }}>Revisión de precios</h3>
-            <button className="btn btn-ghost btn-sm" onClick={() => setDismissedPriceReview(true)} aria-label="Cerrar">✕</button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-            {priceReview.dishPrices.sort((a, b) => a.margin - b.margin).slice(0, 20).map(dp => (
+      {priceReview && !dismissedPriceReview && priceReview.ingredients.filter(i => i.isStale).length === 0 && (() => {
+        const threshold = parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)
+        const pendingDishes = priceReview.dishPrices.filter(dp => {
+          if (!dp.last_price_review) return true
+          return (Date.now() - new Date(dp.last_price_review).getTime()) / 86400000 >= threshold
+        })
+        if (pendingDishes.length === 0) return null
+        return (
+          <div className="card" style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 'var(--spacing-sm)'
+            }}>
+              <h3 style={{ margin: 0 }}>Revisión de precios ({pendingDishes.length})</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setDismissedPriceReview(true)} aria-label="Cerrar">✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+              {pendingDishes.sort((a, b) => a.margin - b.margin).slice(0, 20).map(dp => (
               <div key={dp.id} style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -330,10 +376,11 @@ export default function Menu() {
                   {dp.margin.toFixed(0)}%
                 </span>
               </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {filteredDishes.length === 0 ? (
         <div className="empty-state card">
@@ -421,9 +468,20 @@ export default function Menu() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                <button className="btn btn-sm btn-icon-confirm" onClick={() => handleMarkDishUpdated(dish.id)}>
-                  Actualizado
-                </button>
+                {(() => {
+                  const reviewDate = dish.last_price_review
+                  const threshold = parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)
+                  const isRecent = reviewDate && (Date.now() - new Date(reviewDate).getTime()) / 86400000 < threshold
+                  return (
+                    <button
+                      className={`btn btn-sm ${isRecent ? 'btn-icon-confirm' : 'btn-icon-action'}`}
+                      onClick={() => handleMarkDishUpdated(dish.id)}
+                      disabled={isRecent}
+                    >
+                      {isRecent ? '✓ Actualizado' : 'Actualizar precio'}
+                    </button>
+                  )
+                })()}
                 <button className="btn btn-sm btn-icon-edit" onClick={() => openEdit(dish)} aria-label="Editar plato">Editar</button>
                 <button className="btn btn-sm btn-icon-delete" onClick={() => handleDelete(dish.id)} aria-label="Eliminar plato">Eliminar</button>
               </div>
@@ -437,10 +495,12 @@ export default function Menu() {
         onClose={() => setShowModal(false)}
         title={editing ? 'Editar Plato' : 'Nuevo Plato'}
       >
-        <div className="form-group">
+        <div style={{ position: 'relative' }}>
+          <div className="form-group">
           <label htmlFor="dish-name">Nombre del plato</label>
           <input
             id="dish-name"
+            ref={firstInputRef}
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             placeholder="Ej: Milanesa napolitana"
@@ -497,7 +557,7 @@ export default function Menu() {
             const ingInfo = row.ingredientId ? getIngredientInfo(row.ingredientId) : null
             const subtotal = calcRowSubtotal(row)
             return (
-              <div key={index} style={{
+              <div key={row._key} style={{
                 display: 'flex',
                 gap: 'var(--spacing-sm)',
                 alignItems: 'flex-end',
@@ -604,11 +664,19 @@ export default function Menu() {
 
         <div className="form-actions">
           <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancelar</button>
-          <button className="btn btn-primary btn-lg" onClick={handleSave}>
+          <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving}>
             {editing ? 'Guardar cambios' : 'Crear plato'}
           </button>
         </div>
+        </div>
       </Modal>
+      <ConfirmPopup
+        isOpen={showConfirmPopup}
+        message="Plato guardado. ¿Cargar otro?"
+        confirmLabel="Sí"
+        onConfirm={handleContinueAdding}
+        onCancel={handleStopAdding}
+      />
     </div>
   )
 }

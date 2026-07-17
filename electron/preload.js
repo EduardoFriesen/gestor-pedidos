@@ -56,7 +56,7 @@ contextBridge.exposeInMainWorld('piu', {
   getIngredientCategories: () => ipcRenderer.invoke('piu:getIngredientCategories'),
   getDefaultDeliveryFee: () => ipcRenderer.invoke('piu:getDefaultDeliveryFee'),
   setDefaultDeliveryFee: (fee) => ipcRenderer.invoke('piu:setDefaultDeliveryFee', { fee }),
-  getPriceReview: () => ipcRenderer.invoke('piu:getPriceReview'),
+  getPriceReview: (threshold) => ipcRenderer.invoke('piu:getPriceReview', threshold),
   markIngredientUpdated: (id) => ipcRenderer.invoke('piu:markIngredientUpdated', { id }),
   markDishPriceUpdated: (id) => ipcRenderer.invoke('piu:markDishPriceUpdated', { id }),
   getExportData: () => ipcRenderer.invoke('piu:getExportData'),
