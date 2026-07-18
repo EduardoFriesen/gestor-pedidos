@@ -20,6 +20,7 @@ export default function Ingredients() {
   const [priceReview, setPriceReview] = useState(null)
   const [dismissedStale, setDismissedStale] = useState(false)
   const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const firstInputRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -130,7 +131,7 @@ export default function Ingredients() {
     }, 0)
   }
 
-  const activeSimpleIngredients = ingredients.filter(i => i.is_active && (!i.subIngredients || i.subIngredients.length === 0))
+  const activeSimpleIngredients = ingredients.filter(i => i.is_active && i.id !== (editing?.id || null))
 
   const handleSave = async () => {
     if (savingRef.current) return
@@ -188,9 +189,15 @@ export default function Ingredients() {
     setShowModal(false)
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = (id) => {
     if (savingRef.current) return
-    if (!confirm('¿Eliminar este ingrediente? Se eliminará de platos y sub-productos que lo usen.')) return
+    setDeleteConfirmId(id)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return
+    const id = deleteConfirmId
+    setDeleteConfirmId(null)
     savingRef.current = true
     setSaving(true)
     try {
@@ -670,6 +677,13 @@ export default function Ingredients() {
         confirmLabel="Sí"
         onConfirm={handleContinueAdding}
         onCancel={handleStopAdding}
+      />
+      <ConfirmPopup
+        isOpen={deleteConfirmId !== null}
+        message="¿Eliminar este ingrediente? Se eliminará de platos y sub-productos que lo usen."
+        confirmLabel="Eliminar"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
       />
     </div>
   )

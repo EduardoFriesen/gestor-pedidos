@@ -325,7 +325,7 @@ button:disabled,
   padding: var(--spacing-lg);
   max-width: 900px;
   width: 100%;
-  max-height: 90vh;
+  max-height: 95vh;
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
   border: 2px solid var(--border);
@@ -360,10 +360,16 @@ button:disabled,
 .form-row {
   display: flex;
   gap: var(--spacing-md);
+  align-items: flex-end;
 }
 
 .form-row > * {
   flex: 1;
+}
+
+.form-row .form-group {
+  display: flex;
+  flex-direction: column;
 }
 
 .form-actions {

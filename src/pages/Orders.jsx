@@ -42,6 +42,9 @@ export default function Orders() {
   const [selectedWeekId, setSelectedWeekId] = useState(null)
   const [previousWeeks, setPreviousWeeks] = useState([])
   const [weekOrders, setWeekOrders] = useState([])
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  const [unassembleConfirmId, setUnassembleConfirmId] = useState(null)
+  const [reopenConfirmId, setReopenConfirmId] = useState(null)
 
   const load = useCallback(() => {
     const id = ++loadIdRef.current
@@ -234,8 +237,14 @@ export default function Orders() {
     setShowModal(false)
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('¿Eliminar este pedido?')) return
+  const handleDelete = (id) => {
+    setDeleteConfirmId(id)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return
+    const id = deleteConfirmId
+    setDeleteConfirmId(null)
     try {
       await window.piu?.deleteOrder(id)
       load()
@@ -257,8 +266,14 @@ export default function Orders() {
     }
   }
 
-  const handleUnassemble = async (id) => {
-    if (!confirm('¿Desempaquetar este pedido? Volverá a estado Confirmado.')) return
+  const handleUnassemble = (id) => {
+    setUnassembleConfirmId(id)
+  }
+
+  const confirmUnassemble = async () => {
+    if (!unassembleConfirmId) return
+    const id = unassembleConfirmId
+    setUnassembleConfirmId(null)
     try {
       await window.piu?.unmarkOrderAssembled(id)
       load()
@@ -280,8 +295,14 @@ export default function Orders() {
     }
   }
 
-  const handleUndoDeliver = async (id) => {
-    if (!confirm('¿Reabrir este pedido? Volverá a estado Ensamblado.')) return
+  const handleUndoDeliver = (id) => {
+    setReopenConfirmId(id)
+  }
+
+  const confirmUndoDeliver = async () => {
+    if (!reopenConfirmId) return
+    const id = reopenConfirmId
+    setReopenConfirmId(null)
     try {
       await window.piu?.unmarkOrderDelivered(id)
       load()
@@ -889,6 +910,30 @@ export default function Orders() {
         confirmLabel="Crear otro pedido"
         onConfirm={handleSecondOrderConfirm}
         onCancel={handleSecondOrderCancel}
+      />
+
+      <ConfirmPopup
+        isOpen={deleteConfirmId !== null}
+        message="¿Eliminar este pedido?"
+        confirmLabel="Eliminar"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
+
+      <ConfirmPopup
+        isOpen={unassembleConfirmId !== null}
+        message="¿Desempaquetar este pedido? Volverá a estado Confirmado."
+        confirmLabel="Desempaquetar"
+        onConfirm={confirmUnassemble}
+        onCancel={() => setUnassembleConfirmId(null)}
+      />
+
+      <ConfirmPopup
+        isOpen={reopenConfirmId !== null}
+        message="¿Reabrir este pedido? Volverá a estado Ensamblado."
+        confirmLabel="Reabrir"
+        onConfirm={confirmUndoDeliver}
+        onCancel={() => setReopenConfirmId(null)}
       />
 
       {pdfPreview && (

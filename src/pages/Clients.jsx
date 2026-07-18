@@ -15,6 +15,7 @@ export default function Clients() {
   const [form, setForm] = useState({ name: '', last_name: '', phone: '', address: '', notes: '' })
   const [error, setError] = useState(null)
   const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const firstInputRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -90,9 +91,15 @@ export default function Clients() {
     setShowModal(false)
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = (id) => {
     if (savingRef.current) return
-    if (!confirm('¿Eliminar este cliente?')) return
+    setDeleteConfirmId(id)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return
+    const id = deleteConfirmId
+    setDeleteConfirmId(null)
     savingRef.current = true
     setSaving(true)
     try {
@@ -271,6 +278,13 @@ export default function Clients() {
         confirmLabel="Sí"
         onConfirm={handleContinueAdding}
         onCancel={handleStopAdding}
+      />
+      <ConfirmPopup
+        isOpen={deleteConfirmId !== null}
+        message="¿Eliminar este cliente?"
+        confirmLabel="Eliminar"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
       />
     </div>
   )
