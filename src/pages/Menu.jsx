@@ -27,6 +27,7 @@ export default function Menu() {
   const [dismissedStale, setDismissedStale] = useState(false)
   const [dismissedPriceReview, setDismissedPriceReview] = useState(false)
   const [showConfirmPopup, setShowConfirmPopup] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const firstInputRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -187,9 +188,14 @@ export default function Menu() {
     setShowModal(false)
   }
 
-  const handleDelete = async (id) => {
-    if (savingRef.current) return
-    if (!confirm('¿Eliminar este plato?')) return
+  const handleDelete = (id) => {
+    setDeleteConfirmId(id)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return
+    const id = deleteConfirmId
+    setDeleteConfirmId(null)
     savingRef.current = true
     setSaving(true)
     try {
@@ -676,6 +682,13 @@ export default function Menu() {
         confirmLabel="Sí"
         onConfirm={handleContinueAdding}
         onCancel={handleStopAdding}
+      />
+      <ConfirmPopup
+        isOpen={deleteConfirmId !== null}
+        message="¿Eliminar este plato?"
+        confirmLabel="Eliminar"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
       />
     </div>
   )
