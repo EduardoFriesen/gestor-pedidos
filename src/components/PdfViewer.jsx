@@ -1,13 +1,27 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Modal from './Modal'
 
 export default function PdfViewer({ pdfDoc, title, onClose }) {
   const [dataUrl, setDataUrl] = useState(null)
+  const blobUrlRef = useRef(null)
 
   useEffect(() => {
     if (!pdfDoc) return
-    const url = pdfDoc.output('datauristring')
-    setDataUrl(url)
+    try {
+      const blob = pdfDoc.output('blob')
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+      const url = URL.createObjectURL(blob)
+      blobUrlRef.current = url
+      setDataUrl(url)
+    } catch (e) {
+      console.error('PdfViewer: error al generar blob URL', e)
+    }
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+    }
   }, [pdfDoc])
 
   return (

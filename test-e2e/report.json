@@ -74,18 +74,49 @@
     "Settings: cycle back to claro theme",
     "Settings: change font size to small",
     "Settings: change font size to large",
-    "Settings: change font size to medium",
-    "EMPTY: Dashboard sin pedidos",
-    "EMPTY: Orders sin pedidos",
-    "EMPTY: Menu sin platos",
-    "EMPTY: Ingredients vacío",
-    "EMPTY: Clients vacío",
-    "ERROR: Dashboard on load",
-    "ERROR: Menu on load",
-    "ERROR: Orders on load gracefully handles",
-    "ERROR: Ingredients on load",
-    "ERROR: Clients on load"
+    "Settings: change font size to medium"
   ],
-  "failed": [],
+  "failed": [
+    {
+      "name": "EMPTY: Dashboard sin pedidos",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=orders#/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=orders#/\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "EMPTY: Orders sin pedidos",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=orders#/orders\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=orders#/orders\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "EMPTY: Menu sin platos",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=dishes#/menu\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=dishes#/menu\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "EMPTY: Ingredients vacío",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=ingredients#/ingredients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=ingredients#/ingredients\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "EMPTY: Clients vacío",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=clients#/clients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=clients#/clients\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "ERROR: Dashboard on load",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getDashboard#/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getDashboard#/\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "ERROR: Menu on load",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getDishes#/menu\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getDishes#/menu\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "ERROR: Orders on load gracefully handles",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getOrders#/orders\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getOrders#/orders\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "ERROR: Ingredients on load",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getIngredients#/ingredients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getIngredients#/ingredients\", waiting until \"load\"\u001b[22m\n"
+    },
+    {
+      "name": "ERROR: Clients on load",
+      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getClients#/clients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getClients#/clients\", waiting until \"load\"\u001b[22m\n"
+    }
+  ],
   "total": 85
 }

@@ -191,8 +191,9 @@
     },
 
     deleteDish(id) {
-      const hasOrders = DATA.orders.some(o => o.items.some(i => i.dishId === id))
-      if (hasOrders) return Promise.resolve({ success: false, reason: 'has_orders' })
+      const currentWeekOrders = DATA.orders.filter(o => o.week_id === currentWeekId)
+      const hasOrdersThisWeek = currentWeekOrders.some(o => o.items.some(i => i.dishId === id))
+      if (hasOrdersThisWeek) return Promise.resolve({ success: false, reason: 'has_orders_this_week' })
       DATA.dishes = DATA.dishes.filter(d => d.id !== id)
       return Promise.resolve({ success: true })
     },

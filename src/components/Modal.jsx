@@ -7,7 +7,7 @@ export default function Modal({ isOpen, onClose, title, children }) {
   const prevFocus = useRef(null)
   const titleId = useId()
   const [animState, setAnimState] = useState('closed')
-  const prevOpen = useRef(isOpen)
+  const prevOpen = useRef(false)
 
   useEffect(() => {
     if (isOpen && !prevOpen.current) {

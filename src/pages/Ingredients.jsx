@@ -105,8 +105,13 @@ export default function Ingredients() {
     setForm(f => {
       const rows = [...f.subIngredients]
       if (field === 'ingredientId') {
+        const alreadyUsed = rows.some((r, i) => i !== index && r.ingredientId === value)
+        if (alreadyUsed && value) {
+          showToast('Ese ingrediente ya está cargado en otra fila.', 'info')
+          return f
+        }
         const ing = ingredients.find(i => i.id === value)
-        rows[index] = { ...rows[index], ingredientId: value, displayUnit: ing?.unit || null }
+        rows[index] = { ...rows[index], ingredientId: value, quantity: '', displayUnit: ing?.unit || null }
         if (value && index === rows.length - 1) {
           rows.push(makeSubRow())
         }
@@ -115,6 +120,12 @@ export default function Ingredients() {
       }
       return { ...f, subIngredients: rows }
     })
+    if (field === 'ingredientId' && value) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-focus-sub-qty="${index}"]`)
+        if (el) el.focus()
+      }, 0)
+    }
   }
 
   const getIngInfo = (id) => ingredients.find(i => i.id === id)
@@ -404,7 +415,7 @@ export default function Ingredients() {
                       const ri = priceReview.ingredients.find(i => i.id === ing.id)
                       return ri?.isStale ? (
                         <button className="btn btn-sm btn-icon-action" onClick={() => handleMarkUpdated(ing.id)}>
-                          Actualizar costo
+                          Actualizado
                         </button>
                       ) : null
                     })()}
@@ -434,101 +445,6 @@ export default function Ingredients() {
           />
         </div>
 
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="ing-unit">Unidad</label>
-            <select
-              id="ing-unit"
-              value={form.unit}
-              onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
-            >
-              {['kg', 'g', 'l', 'ml', 'uni', 'doc', 'cda', 'cdta', 'taza', 'pizca'].map(u => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group" style={{ flex: 1.5 }}>
-            <label htmlFor="ing-pkg-qty">Cant. del paquete</label>
-            <input
-              id="ing-pkg-qty"
-              type="text"
-              inputMode="decimal"
-              value={form.package_qty}
-              onChange={e => {
-                const v = e.target.value
-                const qty = parseFloat(v) || 0
-                const pkgP = parseFloat(form.package_price) || 0
-                const cost = (qty > 0 && pkgP > 0) ? String(pkgP / qty) : ''
-                setForm(f => ({ ...f, package_qty: v, cost: cost || f.cost }))
-              }}
-              placeholder="Ej: 10"
-              disabled={form.subIngredients.some(si => si.ingredientId)}
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="ing-pkg-price">Precio del paquete ($)</label>
-            <input
-              id="ing-pkg-price"
-              type="text"
-              inputMode="decimal"
-              value={form.package_price}
-              onChange={e => {
-                const v = e.target.value
-                const pkgP = parseFloat(v) || 0
-                const qty = parseFloat(form.package_qty) || 0
-                const cost = (qty > 0 && pkgP > 0) ? String(pkgP / qty) : ''
-                setForm(f => ({ ...f, package_price: v, cost: cost || f.cost }))
-              }}
-              placeholder="Ej: 500"
-              disabled={form.subIngredients.some(si => si.ingredientId)}
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="ing-cost">Costo por {form.unit} ($)</label>
-            <input
-              id="ing-cost"
-              type="text"
-              inputMode="decimal"
-              value={form.cost}
-              onChange={e => {
-                setForm(f => ({ ...f, cost: e.target.value }))
-              }}
-              placeholder="0"
-              disabled={form.subIngredients.some(si => si.ingredientId)}
-            />
-            {form.subIngredients.some(si => si.ingredientId) && (
-              <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                Costo auto-calculado: <strong>${fmtCost(calcSubTotal())}</strong> / {form.unit}
-              </p>
-            )}
-          </div>
-          {form.subIngredients.some(si => si.ingredientId) && (
-            <div className="form-group">
-              <label htmlFor="ing-batch-yield">Rendimiento ({form.unit})</label>
-              <input
-                id="ing-batch-yield"
-                type="text"
-                inputMode="numeric"
-                value={form.batchYield || ''}
-                onChange={e => {
-                  const raw = e.target.value
-                  if (raw === '' || raw === '.') {
-                    setForm(f => ({ ...f, batchYield: raw }))
-                    return
-                  }
-                  const num = parseFloat(raw)
-                  if (!isNaN(num)) {
-                    setForm(f => ({ ...f, batchYield: num }))
-                  }
-                }}
-                placeholder="1"
-              />
-              <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                Unidades que produce esta receta
-              </p>
-            </div>
-          )}
-        </div>
 
         <div className="form-group">
           <label htmlFor="ing-category">Categoría</label>
@@ -547,6 +463,7 @@ export default function Ingredients() {
           </p>
         </div>
 
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="form-group">
           <div style={{
             display: 'flex',
@@ -595,6 +512,7 @@ export default function Ingredients() {
                   {index === 0 && <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Cantidad</label>}
                   <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <input
+                      data-focus-sub-qty={index}
                       type="text"
                       inputMode="decimal"
                       value={si.quantity ?? ''}
@@ -602,17 +520,18 @@ export default function Ingredients() {
                       placeholder="0"
                       style={{ flex: 1 }}
                     />
-                    {siInfo && (
-                      <select
-                        value={si.displayUnit || siInfo.unit}
-                        onChange={e => updateSubRow(index, 'displayUnit', e.target.value)}
-                        style={{ fontSize: 'var(--font-body)', width: '90px' }}
-                      >
-                        {getCompatibleUnits(siInfo.unit).map(u => (
-                          <option key={u} value={u}>{u}</option>
-                        ))}
-                      </select>
-                    )}
+                    <select
+                      value={si.displayUnit || siInfo?.unit || ''}
+                      onChange={e => updateSubRow(index, 'displayUnit', e.target.value)}
+                      style={{ fontSize: 'var(--font-body)', width: '90px' }}
+                    >
+                      {siInfo
+                        ? getCompatibleUnits(siInfo.unit).map(u => (
+                            <option key={u} value={u}>{u}</option>
+                          ))
+                        : <option value="">—</option>
+                      }
+                    </select>
                   </div>
                 </div>
                 <div style={{ flex: 1, paddingBottom: 'var(--spacing-sm)' }}>
@@ -650,6 +569,117 @@ export default function Ingredients() {
           )}
         </div>
 
+          <div className="form-row" style={{ marginBottom: 'var(--spacing-xs)', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}><label htmlFor="ing-unit">Unidad</label></div>
+            <div style={{ flex: 1 }}><label htmlFor="ing-pkg-qty">Cant. del paquete</label></div>
+            <div style={{ flex: 1 }}><label htmlFor="ing-pkg-price">Precio del paquete ($)</label></div>
+            <div style={{ flex: 1 }}><label htmlFor="ing-cost">Costo por {form.unit} ($)</label></div>
+            {form.subIngredients.some(si => si.ingredientId) && (
+              <div style={{ flex: 1 }}><label htmlFor="ing-batch-yield">Rendimiento ({form.unit})</label></div>
+            )}
+          </div>
+          <div className="form-row">
+            <div style={{ flex: 1 }}>
+              <select
+                id="ing-unit"
+                value={form.unit}
+                onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
+              >
+                {['kg', 'g', 'l', 'ml', 'uni', 'doc', 'cda', 'cdta', 'taza', 'pizca'].map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <input
+                id="ing-pkg-qty"
+                type="text"
+                inputMode="decimal"
+                value={form.package_qty}
+                onChange={e => {
+                  const v = e.target.value
+                  const qty = parseFloat(v) || 0
+                  const pkgP = parseFloat(form.package_price) || 0
+                  const cost = (qty > 0 && pkgP > 0) ? String(pkgP / qty) : ''
+                  setForm(f => ({ ...f, package_qty: v, cost: cost || f.cost, batchYield: qty }))
+                }}
+                placeholder="Ej: 10"
+                disabled={form.subIngredients.some(si => si.ingredientId)}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <input
+                id="ing-pkg-price"
+                type="text"
+                inputMode="decimal"
+                value={form.package_price}
+                onChange={e => {
+                  const v = e.target.value
+                  const pkgP = parseFloat(v) || 0
+                  const qty = parseFloat(form.package_qty) || 0
+                  const cost = (qty > 0 && pkgP > 0) ? String(pkgP / qty) : ''
+                  setForm(f => ({ ...f, package_price: v, cost: cost || f.cost }))
+                }}
+                placeholder="Ej: 500"
+                disabled={form.subIngredients.some(si => si.ingredientId)}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <input
+                id="ing-cost"
+                type="text"
+                inputMode="decimal"
+                value={form.cost}
+                onChange={e => {
+                  setForm(f => ({ ...f, cost: e.target.value }))
+                }}
+                placeholder="0"
+                disabled={form.subIngredients.some(si => si.ingredientId)}
+              />
+            </div>
+            {form.subIngredients.some(si => si.ingredientId) && (
+              <div style={{ flex: 1 }}>
+                <input
+                  id="ing-batch-yield"
+                  type="text"
+                  inputMode="numeric"
+                  value={form.batchYield || ''}
+                  onChange={e => {
+                    const raw = e.target.value
+                    if (raw === '' || raw === '.') {
+                      setForm(f => ({ ...f, batchYield: raw }))
+                      return
+                    }
+                    const num = parseFloat(raw)
+                    if (!isNaN(num)) {
+                      setForm(f => ({ ...f, batchYield: num }))
+                    }
+                  }}
+                  placeholder="1"
+                />
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginTop: '2px', minHeight: '1.2em' }}>
+            <div style={{ flex: 1 }} />
+            <div style={{ flex: 1 }} />
+            <div style={{ flex: 1 }} />
+            <div style={{ flex: 1 }}>
+              {form.subIngredients.some(si => si.ingredientId) && (
+                <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                  Costo auto-calculado: <strong>${fmtCost(calcSubTotal())}</strong> / {form.unit}
+                </p>
+              )}
+            </div>
+            {form.subIngredients.some(si => si.ingredientId) && (
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                  Unidades que produce esta receta
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
         <div className="form-group">
           <label htmlFor="ing-active" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
             <input

@@ -474,7 +474,7 @@ async function runAll() {
   })
 
   await runSuite('Ingredients: update cost button', async () => {
-    const btns = page.locator('button:has-text("Actualizar costo")')
+    const btns = page.locator('button:has-text("Actualizado")')
     if (await btns.count() > 0) {
       assert(await btns.first().isVisible(), 'Update button visible')
     } else {

@@ -147,8 +147,13 @@ export default function Dashboard() {
 
   const handlePrintProduction = () => {
     if (!data) return
-    const doc = generarHojaProduccion(data)
-    setPdfPreview({ doc, title: `produccion-piu-${data.week.week_start}` })
+    try {
+      const doc = generarHojaProduccion(data)
+      setPdfPreview({ doc, title: `produccion-piu-${data.week.week_start}` })
+    } catch (e) {
+      console.error('Error al generar hoja de producción:', e)
+      showToast('Error al generar el PDF.', 'error')
+    }
   }
 
   const handlePrintShopping = () => {
@@ -156,8 +161,13 @@ export default function Dashboard() {
       showToast('No hay ingredientes configurados en los platos para generar la lista de compras.', 'info')
       return
     }
-    const doc = generarListaCompras(ingredients)
-    setPdfPreview({ doc, title: `compras-piu-${data?.week?.week_start || 'semana'}` })
+    try {
+      const doc = generarListaCompras(ingredients)
+      setPdfPreview({ doc, title: `compras-piu-${data?.week?.week_start || 'semana'}` })
+    } catch (e) {
+      console.error('Error al generar lista de compras:', e)
+      showToast('Error al generar el PDF.', 'error')
+    }
   }
 
   return (

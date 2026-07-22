@@ -18,7 +18,7 @@ export default function Menu() {
   const [form, setForm] = useState({
     name: '', category: '', price: '',
     ingredientRows: [{ ingredientId: null, quantity: 0, displayUnit: null }],
-    is_active: true
+    is_active: true, desiredMarkup: ''
   })
   const [error, setError] = useState(null)
   const [dishSort, setDishSort] = useState('name')
@@ -63,7 +63,7 @@ export default function Menu() {
 
   const openNew = () => {
     setEditing(null)
-    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true })
+    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true, desiredMarkup: '' })
     setShowModal(true)
   }
 
@@ -80,7 +80,8 @@ export default function Menu() {
       category: dish.category || '',
       price: dish.price?.toString() || '',
       ingredientRows: rows,
-      is_active: !!dish.is_active
+      is_active: !!dish.is_active,
+      desiredMarkup: ''
     })
     setShowModal(true)
   }
@@ -106,7 +107,7 @@ export default function Menu() {
           return f
         }
         const ing = allIngredients.find(i => i.id === value)
-        rows[index] = { ...rows[index], ingredientId: value, displayUnit: ing?.unit || null }
+        rows[index] = { ...rows[index], ingredientId: value, quantity: '', displayUnit: ing?.unit || null }
         if (value && index === rows.length - 1) {
           rows.push(makeRow())
         }
@@ -115,6 +116,12 @@ export default function Menu() {
       }
       return { ...f, ingredientRows: rows }
     })
+    if (field === 'ingredientId' && value) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-focus-ing-qty="${index}"]`)
+        if (el) el.focus()
+      }, 0)
+    }
   }
 
   const getIngredientInfo = (id) => {
@@ -200,8 +207,8 @@ export default function Menu() {
     setSaving(true)
     try {
       const res = await window.piu?.deleteDish(id)
-      if (res && !res.success && res.reason === 'has_orders') {
-        showToast('No se puede eliminar: el plato tiene pedidos asociados.', 'error')
+      if (res && !res.success && res.reason === 'has_orders_this_week') {
+        showToast('No se puede eliminar: el plato tiene pedidos asociados en la semana actual.', 'error')
         return
       }
       load()
@@ -484,7 +491,7 @@ export default function Menu() {
                       onClick={() => handleMarkDishUpdated(dish.id)}
                       disabled={isRecent}
                     >
-                      {isRecent ? '✓ Actualizado' : 'Actualizar precio'}
+                      {isRecent ? '✓ Actualizado' : 'Actualizado'}
                     </button>
                   )
                 })()}
@@ -513,8 +520,7 @@ export default function Menu() {
           />
         </div>
 
-        <div className="form-row">
-          <div className="form-group">
+        <div className="form-group">
             <label htmlFor="dish-category">Categoría</label>
             <input
               id="dish-category"
@@ -527,31 +533,9 @@ export default function Menu() {
               {categories.map(c => <option key={c} value={c} />)}
             </datalist>
           </div>
-          <div className="form-group">
-            <label htmlFor="dish-price">Precio ($)</label>
-              <input
-                  id="dish-price"
-                  type="text"
-                  inputMode="decimal"
-                  value={form.price}
-                  onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
-                  placeholder="0.00"
-                />
-          </div>
-        </div>
 
         <div className="form-group">
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 'var(--spacing-sm)'
-          }}>
-            <label htmlFor="add-ingredient-btn">Ingredientes</label>
-            <button className="btn btn-outline btn-sm" onClick={addRow}>
-              + Agregar ingrediente
-            </button>
-          </div>
+          <label htmlFor="add-ingredient-btn">Ingredientes</label>
 
           {activeIngredients.length === 0 && (
             <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-sm)' }}>
@@ -587,6 +571,7 @@ export default function Menu() {
                   {index === 0 && <label style={{ fontSize: 'var(--font-xs)', display: 'block' }}>Cantidad</label>}
                   <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <input
+                      data-focus-ing-qty={index}
                       type="text"
                       inputMode="decimal"
                       value={row.quantity ?? ''}
@@ -594,17 +579,18 @@ export default function Menu() {
                       placeholder="0"
                       style={{ flex: 1 }}
                     />
-                    {ingInfo && (
-                      <select
-                        value={row.displayUnit || ingInfo.unit}
-                        onChange={e => updateRow(index, 'displayUnit', e.target.value)}
-                        style={{ fontSize: 'var(--font-body)', width: '90px' }}
-                      >
-                        {getCompatibleUnits(ingInfo.unit).map(u => (
-                          <option key={u} value={u}>{u}</option>
-                        ))}
-                      </select>
-                    )}
+                    <select
+                      value={row.displayUnit || ingInfo?.unit || ''}
+                      onChange={e => updateRow(index, 'displayUnit', e.target.value)}
+                      style={{ fontSize: 'var(--font-body)', width: '90px' }}
+                    >
+                      {ingInfo
+                        ? getCompatibleUnits(ingInfo.unit).map(u => (
+                            <option key={u} value={u}>{u}</option>
+                          ))
+                        : <option value="">—</option>
+                      }
+                    </select>
                   </div>
                 </div>
                 <div style={{ flex: 1, paddingBottom: 'var(--spacing-sm)' }}>
@@ -630,30 +616,64 @@ export default function Menu() {
           })}
         </div>
 
-        {(totalCost > 0 || dishPrice > 0) && (
-          <div className="card" style={{
-            padding: 'var(--spacing-md)',
-            marginBottom: 'var(--spacing-md)',
-            background: 'var(--primary-light)'
-          }}>
-            <div style={{ display: 'flex', gap: 'var(--spacing-lg)', flexWrap: 'wrap', fontSize: 'var(--font-body)' }}>
-              {totalCost > 0 && (
-                <span>Costo producción: <strong>${totalCost.toFixed(2)}</strong></span>
-              )}
-              {dishPrice > 0 && (
-                <span>Precio venta: <strong>${dishPrice.toFixed(2)}</strong></span>
-              )}
-              {dishPrice > 0 && totalCost > 0 && (
-                <span style={{
-                  color: margin >= 30 ? 'var(--success)' : margin >= 10 ? 'var(--accent)' : 'var(--danger)',
-                  fontWeight: 700
-                }}>
-                  Margen: {margin.toFixed(0)}% (${(dishPrice - totalCost).toFixed(2)})
-                </span>
-              )}
+        {(totalCost > 0 || dishPrice > 0) && (() => {
+          const desiredPct = parseFloat(form.desiredMarkup) || 0
+          const suggestedPrice = totalCost > 0 && desiredPct > 0
+            ? totalCost * (1 + desiredPct / 100)
+            : null
+          return (
+            <div className="card" style={{
+              padding: 'var(--spacing-md)',
+              marginBottom: 'var(--spacing-md)',
+              background: 'var(--primary-light)'
+            }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-lg)', flexWrap: 'wrap', fontSize: 'var(--font-body)', alignItems: 'center' }}>
+                {totalCost > 0 && (
+                  <span>Costo producción: <strong>${totalCost.toFixed(2)}</strong></span>
+                )}
+                {dishPrice > 0 && totalCost > 0 && (
+                  <span style={{
+                    color: margin >= 30 ? 'var(--success)' : margin >= 10 ? 'var(--accent)' : 'var(--danger)',
+                    fontWeight: 700
+                  }}>
+                    Margen: {margin.toFixed(0)}% (${(dishPrice - totalCost).toFixed(2)})
+                  </span>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+                  <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Ganancia deseada:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="999"
+                    step="1"
+                    value={form.desiredMarkup || ''}
+                    onChange={e => setForm(f => ({ ...f, desiredMarkup: e.target.value }))}
+                    placeholder="—"
+                    style={{ width: '55px', fontSize: 'var(--font-sm)', textAlign: 'center', padding: '2px 4px' }}
+                  />
+                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>%</span>
+                </div>
+                {suggestedPrice !== null && (
+                  <span style={{ fontWeight: 700, color: 'var(--success)' }}>
+                    Precio sugerido: ${suggestedPrice.toFixed(2)}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
+
+        <div className="form-group">
+          <label htmlFor="dish-price">Precio ($)</label>
+          <input
+            id="dish-price"
+            type="text"
+            inputMode="decimal"
+            value={form.price}
+            onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+            placeholder="0.00"
+          />
+        </div>
 
         <div className="form-group">
           <label htmlFor="dish-active" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>

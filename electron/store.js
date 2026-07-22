@@ -393,7 +393,8 @@ function createDish(d) {
     category: d.category || '',
     price: Math.max(0, d.price || 0),
     ingredients: Array.isArray(d.ingredients) ? d.ingredients.map(i => ({ ingredientId: i.ingredientId, quantity: i.quantity })) : [],
-    is_active: d.is_active !== false
+    is_active: d.is_active !== false,
+    last_price_review: new Date().toISOString()
   }
   data.dishes.push(dish)
   save()
@@ -413,8 +414,14 @@ function updateDish(d) {
 }
 
 function deleteDish(id) {
-  const hasOrders = data.orderItems.some(oi => oi.dish_id === id)
-  if (hasOrders) return { success: false, reason: 'has_orders' }
+  const currentWeek = getCurrentWeek()
+  const currentWeekOrderIds = new Set(
+    data.orders.filter(o => o.week_id === currentWeek.id).map(o => o.id)
+  )
+  const hasOrdersThisWeek = data.orderItems.some(
+    oi => oi.dish_id === id && currentWeekOrderIds.has(oi.order_id)
+  )
+  if (hasOrdersThisWeek) return { success: false, reason: 'has_orders_this_week' }
   data.dishes = data.dishes.filter(d => d.id !== id)
   save()
   return { success: true }
