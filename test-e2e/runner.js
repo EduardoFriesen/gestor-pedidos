@@ -196,9 +196,9 @@ async function runAll() {
   })
 
   await runSuite('Orders: summary stat cards', async () => {
-    assert(await page.locator('text=Faltantes').count() > 0, 'Faltantes not found')
+    assert(await page.locator('text=Pendientes').count() > 0, 'Pendientes not found')
     assert(await page.locator('text=Armados').count() > 0, 'Armados not found')
-    assert(await page.locator('text=Enviados').count() > 0, 'Enviados not found')
+    assert(await page.locator('text=Entregados').count() > 0, 'Entregados not found')
   })
 
   await runSuite('Orders: switch to historical week', async () => {
@@ -474,7 +474,7 @@ async function runAll() {
   })
 
   await runSuite('Ingredients: update cost button', async () => {
-    const btns = page.locator('button:has-text("Actualizado")')
+    const btns = page.locator('button:has-text("Precio vigente")')
     if (await btns.count() > 0) {
       assert(await btns.first().isVisible(), 'Update button visible')
     } else {

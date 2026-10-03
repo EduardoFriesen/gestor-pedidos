@@ -1,11 +1,28 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import Modal from '../components/Modal'
 import PdfViewer from '../components/PdfViewer'
 import ConfirmPopup from '../components/ConfirmPopup'
-import { generarEtiquetasDelivery } from '../utils/pdf'
+import ClientForm from '../components/ClientForm'
+import QRCode from 'qrcode'
+import { generarEtiquetasDelivery, generarHojaRuta, DAY_LABELS, DAY_ORDER } from '../utils/pdf'
+import { buildRoute, buildMapsLinks } from '../utils/geocode'
 import { SkeletonOrderRow } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
 import { useToast } from '../components/ToastProvider'
+import { fmtMoney, formatDate, formatWeekRange, orderStatus } from '../utils/format'
+
+const RouteMap = lazy(() => import('../components/RouteMap'))
+
+function addDaysISO(str, days) {
+  const [y, m, d] = str.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + days)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+
+function parseQty(v) {
+  const n = parseInt(v, 10)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
 
 export default function Orders() {
   const showToast = useToast()
@@ -23,7 +40,7 @@ export default function Orders() {
   const [editing, setEditing] = useState(null)
   const [week, setWeek] = useState(null)
   const [ordersOpen, setOrdersOpen] = useState(true)
-  const [form, setForm] = useState({ clientId: '', notes: '', items: [{ _key: ++itemKeyRef.current, dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: 500 })
+  const [form, setForm] = useState({ clientId: '', notes: '', items: [{ _key: ++itemKeyRef.current, dishId: '', quantity: 1 }], has_delivery: false, delivery_fee: 500, delivery_day: 'viernes' })
   const [showConfirmPopup, setShowConfirmPopup] = useState(false)
   const [showSecondOrderPopup, setShowSecondOrderPopup] = useState(false)
   const [secondOrderMessage, setSecondOrderMessage] = useState('')
@@ -33,10 +50,12 @@ export default function Orders() {
   const [pdfPreview, setPdfPreview] = useState(null)
   const [alternateWeek, setAlternateWeek] = useState(null)
   const [orderSearch, setOrderSearch] = useState('')
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [routeView, setRouteView] = useState(null)
   const [showUnpackedOnly, setShowUnpackedOnly] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [showNewClientModal, setShowNewClientModal] = useState(false)
-  const [newClientForm, setNewClientForm] = useState({ name: '', last_name: '', phone: '', address: '', notes: '' })
+  const [newClientSeed, setNewClientSeed] = useState(null)
   const [showClientDropdown, setShowClientDropdown] = useState(false)
   const [orderCounts, setOrderCounts] = useState(null)
   const [selectedWeekId, setSelectedWeekId] = useState(null)
@@ -45,6 +64,20 @@ export default function Orders() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const [unassembleConfirmId, setUnassembleConfirmId] = useState(null)
   const [reopenConfirmId, setReopenConfirmId] = useState(null)
+  const selectedWeekIdRef = useRef(null)
+
+  const loadWeekOrders = useCallback(async (weekId) => {
+    if (!weekId) {
+      setWeekOrders([])
+      return
+    }
+    try {
+      const wo = await window.piu?.getOrdersByWeekId(weekId)
+      if (selectedWeekIdRef.current === weekId) setWeekOrders(wo || [])
+    } catch {
+      setWeekOrders([])
+    }
+  }, [])
 
   const load = useCallback(() => {
     const id = ++loadIdRef.current
@@ -60,7 +93,7 @@ export default function Orders() {
     ]).then(([o, d, c, w, isOpen, fee, pw]) => {
       if (id !== loadIdRef.current) return
       setOrders(o || [])
-      setDishes((d || []).filter(d => d && d.is_active))
+      setDishes((d || []).filter(Boolean))
       setClients(c || [])
       setWeek(w)
       setOrdersOpen(isOpen)
@@ -68,7 +101,8 @@ export default function Orders() {
       setPreviousWeeks(pw || [])
       setLoading(false)
     })
-  }, [])
+    if (selectedWeekIdRef.current) loadWeekOrders(selectedWeekIdRef.current)
+  }, [loadWeekOrders])
 
   useEffect(() => { load() }, [load])
 
@@ -93,26 +127,32 @@ export default function Orders() {
 
   const makeItem = (dishId = '', quantity = 1) => ({ _key: ++itemKeyRef.current, dishId, quantity })
 
-  const handleWeekSelect = async (e) => {
+  const handleWeekSelect = (e) => {
     const weekId = e.target.value ? parseInt(e.target.value, 10) : null
+    selectedWeekIdRef.current = weekId
     setSelectedWeekId(weekId)
-    if (weekId) {
-      try {
-        const wo = await window.piu?.getOrdersByWeekId(weekId)
-        setWeekOrders(wo || [])
-      } catch {
-        setWeekOrders([])
-      }
-    } else {
-      setWeekOrders([])
-    }
+    setWeekOrders([])
+    loadWeekOrders(weekId)
   }
 
-  const isHistorical = selectedWeekId !== null
+  const selectedWeek = selectedWeekId ? previousWeeks.find(w => w.id === selectedWeekId) : null
+  const isOtherWeek = selectedWeekId !== null
+  const isFutureWeek = !!(selectedWeek && week && selectedWeek.week_start > week.week_start)
+  const isHistorical = isOtherWeek && !isFutureWeek
 
   const handleCloseModal = useCallback(() => setShowModal(false), [])
 
   const activeDishes = dishes.filter(d => d.is_active)
+  const dishOptions = [
+    ...activeDishes,
+    ...dishes.filter(d => !d.is_active && form.items.some(i => String(i.dishId) === String(d.id)))
+  ]
+  const dishById = (id) => dishes.find(d => String(d.id) === String(id))
+  const formItemsTotal = form.items.reduce((sum, i) => {
+    const d = i.dishId ? dishById(i.dishId) : null
+    return sum + (d ? (d.price || 0) * parseQty(i.quantity) : 0)
+  }, 0)
+  const formTotal = formItemsTotal + (form.has_delivery ? (Number(form.delivery_fee) || 0) : 0)
 
   const openNew = async () => {
     try {
@@ -122,24 +162,13 @@ export default function Orders() {
       if (!isOpen) {
         const resp = await window.piu?.getCurrentWeek()
         if (!resp) return
-        const nextWeekDate = new Date(resp.week_start)
-        nextWeekDate.setDate(nextWeekDate.getDate() + 7)
-        const fmt = (dt) => {
-          const y = dt.getFullYear()
-          const m = String(dt.getMonth() + 1).padStart(2, '0')
-          const d = String(dt.getDate()).padStart(2, '0')
-          return `${y}-${m}-${d}`
-        }
-        const nextStart = fmt(nextWeekDate)
-        const currentWeekStart = resp.week_start
-
-        setAlternateWeek({ current: currentWeekStart, next: nextStart })
+        setAlternateWeek({ current: resp.week_start, next: addDaysISO(resp.week_start, 7) })
         setShowWeekSelector(true)
         return
       }
 
       setEditing(null)
-      setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee })
+      setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee, delivery_day: 'viernes' })
       setShowModal(true)
     } catch (e) {
       console.error('Error opening new order:', e)
@@ -150,7 +179,7 @@ export default function Orders() {
     setShowWeekSelector(false)
     if (choice === 'cancel') return
     setEditing(null)
-    setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee, targetWeek: choice })
+    setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee, delivery_day: 'viernes', targetWeek: choice })
     setShowModal(true)
   }
 
@@ -161,24 +190,36 @@ export default function Orders() {
       notes: order.notes || '',
       items: order.items?.map(i => ({ _key: ++itemKeyRef.current, dishId: i.dish_id, quantity: i.quantity })) || [makeItem()],
       has_delivery: !!order.has_delivery,
-      delivery_fee: order.delivery_fee || defaultDeliveryFee
+      delivery_fee: order.delivery_fee || defaultDeliveryFee,
+      delivery_day: order.delivery_day || 'viernes'
     })
     setShowModal(true)
   }
 
-  const executeSave = async (data, suppressAnother) => {
+  const executeSave = async (data, suppressAnother, targetWeek = null) => {
     savingRef.current = true
     setSaving(true)
     try {
-      if (editing) {
-        await window.piu?.updateOrder({ id: editing.id, ...data })
-        setShowModal(false)
-      } else {
-        await window.piu?.createOrder(data)
+      const res = editing
+        ? await window.piu?.updateOrder({ id: editing.id, ...data })
+        : await window.piu?.createOrder(data)
+      if (res && res.success === false) {
+        const reasons = {
+          invalid_client: 'El cliente ya no existe.',
+          invalid_week: 'La semana del pedido no existe.',
+          no_valid_items: 'Ningún plato del pedido es válido.'
+        }
+        setError(reasons[res.reason] || 'No se pudo guardar el pedido.')
+        return
       }
+      if (editing) setShowModal(false)
       load()
       window.dispatchEvent(new Event('piu:production-update'))
-      showToast('Pedido guardado', 'success')
+      if (!editing && targetWeek && week && targetWeek.id !== week.id) {
+        showToast(`Pedido agregado a la semana del ${formatWeekRange(targetWeek.week_start, targetWeek.week_end)}`, 'success')
+      } else {
+        showToast('Pedido guardado', 'success')
+      }
       if (!editing && !suppressAnother) {
         setShowConfirmPopup(true)
       }
@@ -192,30 +233,51 @@ export default function Orders() {
 
   const handleSave = async () => {
     if (savingRef.current) return
-    if (!form.clientId || form.items.length === 0 || !form.items[0].dishId) return
+    if (!form.clientId) {
+      showToast('Elegí un cliente.', 'info')
+      return
+    }
+    const items = form.items.filter(i => i.dishId)
+    if (items.length === 0) {
+      showToast('Agregá al menos un plato.', 'info')
+      return
+    }
+    if (items.some(i => parseQty(i.quantity) === 0)) {
+      showToast('Las cantidades tienen que ser números enteros mayores a 0.', 'info')
+      return
+    }
+    let targetWeek = week
+    if (!editing && form.targetWeek === 'next') {
+      targetWeek = await window.piu?.getOrCreateNextWeek()
+    }
+    if (!editing && !targetWeek) {
+      setError('No se pudo determinar la semana del pedido.')
+      return
+    }
     const data = {
       clientId: parseInt(form.clientId),
-      weekId: week.id,
-      items: form.items.filter(i => i.dishId).map(i => ({ dishId: parseInt(i.dishId), quantity: parseFloat(i.quantity) || 1 })),
+      weekId: targetWeek?.id,
+      items: items.map(i => ({ dishId: parseInt(i.dishId), quantity: parseQty(i.quantity) })),
       notes: form.notes,
       has_delivery: form.has_delivery,
-      delivery_fee: Number(form.delivery_fee) || 0
+      delivery_fee: Number(form.delivery_fee) || 0,
+      delivery_day: form.has_delivery ? form.delivery_day : null
     }
-    if (!editing && (await window.piu?.clientHasOrderThisWeek(parseInt(form.clientId)))) {
-      const c = clients.find(x => x.id === parseInt(form.clientId))
-      const name = c ? `${c.name} ${c.last_name}` : 'El cliente'
-      setSecondOrderMessage(`${name} ya tiene un pedido esta semana. ¿Crear otro?`)
-      setPendingData(data)
+    if (!editing && (await window.piu?.clientHasOrderThisWeek(data.clientId, data.weekId))) {
+      const c = clients.find(x => x.id === data.clientId)
+      const name = c ? `${c.name} ${c.last_name}`.trim() : 'El cliente'
+      setSecondOrderMessage(`${name} ya tiene un pedido ${targetWeek.id === week?.id ? 'esta semana' : 'esa semana'}. ¿Crear otro?`)
+      setPendingData({ data, targetWeek })
       setShowSecondOrderPopup(true)
       return
     }
-    await executeSave(data)
+    await executeSave(data, false, targetWeek)
   }
 
   const handleSecondOrderConfirm = async () => {
     setShowSecondOrderPopup(false)
     setPendingData(null)
-    await executeSave(pendingData, true)
+    if (pendingData) await executeSave(pendingData.data, true, pendingData.targetWeek)
   }
 
   const handleSecondOrderCancel = () => {
@@ -225,7 +287,7 @@ export default function Orders() {
 
   const handleContinueAdding = () => {
     setShowConfirmPopup(false)
-    setForm({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee })
+    setForm(f => ({ clientId: '', notes: '', items: [makeItem()], has_delivery: false, delivery_fee: defaultDeliveryFee, delivery_day: 'viernes', targetWeek: f.targetWeek }))
     requestAnimationFrame(() => {
       const input = document.querySelector('.modal-content input, .modal-content select')
       if (input) input.focus()
@@ -260,9 +322,9 @@ export default function Orders() {
       await window.piu?.markOrderAssembled(id)
       load()
       window.dispatchEvent(new Event('piu:production-update'))
-      showToast('Pedido ensamblado', 'success')
+      showToast('Pedido armado', 'success')
     } catch (e) {
-      setError('No se pudo ensamblar el pedido.')
+      setError('No se pudo marcar el pedido como armado.')
     }
   }
 
@@ -278,9 +340,9 @@ export default function Orders() {
       await window.piu?.unmarkOrderAssembled(id)
       load()
       window.dispatchEvent(new Event('piu:production-update'))
-      showToast('Pedido desempaquetado', 'success')
+      showToast('Pedido vuelto a pendiente', 'success')
     } catch (e) {
-      setError('No se pudo desempaquetar el pedido.')
+      setError('No se pudo desarmar el pedido.')
     }
   }
 
@@ -313,6 +375,56 @@ export default function Orders() {
     }
   }
 
+  const handlePrintRoute = async () => {
+    try {
+      await generateRoutePdf()
+    } catch (e) {
+      setError('No se pudo generar la hoja de ruta.')
+    }
+  }
+
+  const generateRoutePdf = async () => {
+    setRouteLoading(true)
+    try {
+      const weekData = await window.piu?.getCurrentWeek()
+      if (!weekData) return setRouteLoading(false)
+      const allOrders = await window.piu?.getOrdersByWeekId(weekData.id)
+      if (!allOrders || allOrders.length === 0) {
+        showToast('No hay pedidos para esta semana.', 'info')
+        return setRouteLoading(false)
+      }
+      const deliveryOrders = allOrders.filter(o => o.has_delivery)
+      if (deliveryOrders.length === 0) {
+        showToast('No hay pedidos con envío.', 'info')
+        return setRouteLoading(false)
+      }
+      const { route, startCoords, city, stats } = await buildRoute(deliveryOrders)
+      if (!startCoords) showToast('No se pudo obtener la ubicación del dispositivo', 'warning')
+      const links = buildMapsLinks(route, startCoords)
+      const maps = {}
+      for (const [day, urls] of Object.entries(links)) {
+        maps[day] = await Promise.all(urls.map(async url => ({
+          url,
+          qr: await QRCode.toDataURL(url, { margin: 1, width: 256 }).catch(() => null)
+        })))
+      }
+      const deliveryCoords = DAY_ORDER.filter(d => route[d]).flatMap(day =>
+        route[day].map((o, i) => o._coords ? { ...o._coords, label: String(i + 1) } : null).filter(Boolean)
+      )
+      const lines = DAY_ORDER.filter(d => route[d]).map(day => {
+        if (stats?.[day]?.geometry?.length > 1) return { points: stats[day].geometry, dashed: false }
+        const pts = route[day].filter(o => o._coords).map(o => [o._coords.lat, o._coords.lng])
+        return { points: startCoords ? [[startCoords.lat, startCoords.lng], ...pts] : pts, dashed: true }
+      }).filter(l => l.points.length > 1)
+      setRouteView({ maps: Object.keys(maps).length > 0 ? maps : null, startCoords, deliveryCoords, lines })
+      setPdfPreview(generarHojaRuta(route, city, weekData, maps, stats))
+    } catch (e) {
+      setError('No se pudo generar la hoja de ruta.')
+    } finally {
+      setRouteLoading(false)
+    }
+  }
+
   const handlePrintLabelsView = async () => {
     try {
       const weekData = await window.piu?.getCurrentWeek()
@@ -323,6 +435,7 @@ export default function Orders() {
         return
       }
       const doc = generarEtiquetasDelivery(allOrders)
+      setRouteView(null)
       setPdfPreview(doc)
     } catch (e) {
       setError('No se pudieron generar las etiquetas.')
@@ -341,7 +454,7 @@ export default function Orders() {
     setForm(f => {
       const items = [...f.items]
       if (field === 'dishId' && value) {
-        const alreadyExists = items.some((item, i) => i !== idx && item.dishId === value)
+        const alreadyExists = items.some((item, i) => i !== idx && String(item.dishId) === String(value))
         if (alreadyExists) {
           showToast('Ese plato ya está cargado. Aumentá la cantidad del existente.', 'info')
           return f
@@ -361,7 +474,7 @@ export default function Orders() {
   }
 
   const oq = orderSearch.toLowerCase()
-  const sourceOrders = isHistorical ? weekOrders : orders
+  const sourceOrders = isOtherWeek ? weekOrders : orders
   const filteredOrders = (sourceOrders || []).filter(o => {
     if (oq && !(o.client_name || '').toLowerCase().includes(oq) &&
         !(o.items || []).some(i => (i.dish_name || '').toLowerCase().includes(oq))) return false
@@ -391,35 +504,27 @@ export default function Orders() {
       || (c.notes || '').toLowerCase().includes(cq)
   )
 
-  const handleNewClientSave = async () => {
-    if (savingRef.current) return
-    if (!newClientForm.name.trim()) return
-    savingRef.current = true
-    setSaving(true)
+  const openNewClient = () => {
+    const [first, ...rest] = clientSearch.trim().split(/\s+/)
+    setNewClientSeed({ name: first || '', last_name: rest.join(' ') })
+    setShowNewClientModal(true)
+    setShowClientDropdown(false)
+  }
+
+  const handleNewClientSave = async (data) => {
     try {
-      const data = {
-        name: newClientForm.name.trim(),
-        last_name: newClientForm.last_name.trim(),
-        phone: newClientForm.phone.trim(),
-        address: newClientForm.address.trim(),
-        notes: newClientForm.notes.trim()
-      }
       const result = await window.piu?.createClient(data)
       if (result?.success) {
         const updatedClients = await window.piu?.getClients()
         setClients(updatedClients || [])
         setForm(f => ({ ...f, clientId: result.id }))
         setShowNewClientModal(false)
-        setNewClientForm({ name: '', last_name: '', phone: '', address: '', notes: '' })
         setClientSearch('')
         setShowClientDropdown(false)
         showToast('Cliente creado', 'success')
       }
     } catch (e) {
       setError('No se pudo crear el cliente.')
-    } finally {
-      savingRef.current = false
-      setSaving(false)
     }
   }
 
@@ -444,7 +549,7 @@ export default function Orders() {
             <option value="">Semana actual</option>
             {previousWeeks.map(w => (
               <option key={w.id} value={w.id}>
-                {w.week_start} — {w.week_end}
+                {week && w.week_start > week.week_start ? `Próxima semana (${formatWeekRange(w.week_start, w.week_end)})` : formatWeekRange(w.week_start, w.week_end)}
               </option>
             ))}
           </select>
@@ -455,10 +560,13 @@ export default function Orders() {
           )}
         </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-          <button className="btn btn-outline btn-sm" onClick={handlePrintLabelsView} disabled={isHistorical}>
+          <button className="btn btn-outline btn-sm" onClick={handlePrintLabelsView} disabled={isOtherWeek}>
             Etiquetas
           </button>
-          <button className="btn btn-primary" onClick={openNew} disabled={isHistorical} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
+          <button className="btn btn-outline btn-sm" onClick={handlePrintRoute} disabled={isOtherWeek || routeLoading}>
+            {routeLoading ? 'Generando...' : 'Hoja de Ruta'}
+          </button>
+          <button className="btn btn-primary" onClick={openNew} disabled={isOtherWeek} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
             + Pedido
           </button>
         </div>
@@ -473,7 +581,7 @@ export default function Orders() {
         nextStart={alternateWeek?.next}
       />
 
-      {!isHistorical && orderCounts && (
+      {!isOtherWeek && orderCounts && (
         <div style={{
           display: 'flex',
           gap: 'var(--spacing-md)',
@@ -481,7 +589,7 @@ export default function Orders() {
           flexWrap: 'wrap'
         }}>
           <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)', borderColor: (orderCounts.pending + orderCounts.confirmed) > 0 ? 'var(--accent)' : undefined }}>
-            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>Faltantes</p>
+            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>Pendientes</p>
             <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--accent)' }}>{orderCounts.pending + orderCounts.confirmed}</p>
           </div>
           <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
@@ -489,7 +597,7 @@ export default function Orders() {
             <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--warning)' }}>{orderCounts.assembled}</p>
           </div>
           <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--success)' }}>Enviados</p>
+            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--success)' }}>Entregados</p>
             <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>{orderCounts.delivered}</p>
           </div>
         </div>
@@ -511,7 +619,7 @@ export default function Orders() {
           aria-label="Buscar pedido"
           style={{ flex: '1', minWidth: '200px', maxWidth: '400px' }}
         />
-        {!isHistorical && <label style={{
+        {!isOtherWeek && <label style={{
           display: 'flex',
           alignItems: 'center',
           gap: 'var(--spacing-xs)',
@@ -525,7 +633,7 @@ export default function Orders() {
             onChange={e => setShowUnpackedOnly(e.target.checked)}
             style={{ width: '24px', height: '24px' }}
           />
-          Solo sin empaquetar
+          Solo pendientes de armar
         </label>}
       </div>
 
@@ -537,8 +645,8 @@ export default function Orders() {
 
       {!loading && sortedOrders.length === 0 && (
         <div className="empty-state card">
-          <h3>{orderSearch || showUnpackedOnly ? 'Sin resultados' : isHistorical ? 'No hay pedidos en esta semana' : 'No hay pedidos esta semana'}</h3>
-          <p>{orderSearch || showUnpackedOnly ? 'Probá con otros filtros.' : isHistorical ? 'Seleccioná otra semana para ver sus pedidos.' : 'Usá el botón "+ Nuevo Pedido" para registrar el primer pedido de la semana.'}</p>
+          <h3>{orderSearch || showUnpackedOnly ? 'Sin resultados' : isOtherWeek ? 'No hay pedidos en esta semana' : 'No hay pedidos esta semana'}</h3>
+          <p>{orderSearch || showUnpackedOnly ? 'Probá con otros filtros.' : isOtherWeek ? 'Seleccioná otra semana para ver sus pedidos.' : 'Usá el botón "+ Pedido" para registrar el primer pedido de la semana.'}</p>
         </div>
       )}
 
@@ -551,31 +659,33 @@ export default function Orders() {
                   <h3 style={{ fontSize: 'var(--font-lg)', margin: 0 }}>
                     {order.client_name}
                   </h3>
-                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                    {order.client_phone && `${order.client_phone}`}
-                  </span>
+                  {(order.client_phone || (order.has_delivery && (order.client_address || order.client_locality))) && (
+                    <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+                      {[order.client_phone, order.has_delivery ? [order.client_address, order.client_locality].filter(Boolean).join(', ') : null].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center' }}>
-                  <span className={`badge ${order.status === 'delivered' ? 'badge-success' : order.status === 'assembled' ? 'badge-success' : order.status === 'confirmed' ? 'badge-warning' : 'badge-warning'}`}
+                  <span className={`badge ${orderStatus(order.status).badge}`}
                     style={{ fontSize: 'var(--font-sm)' }}>
-                    {order.status === 'pending' ? 'Pendiente' : order.status === 'confirmed' ? 'Confirmado' : order.status === 'assembled' ? 'Ensamblado' : 'Entregado'}
+                    {orderStatus(order.status).label}
                   </span>
-                  {!isHistorical && (order.status === 'pending' || order.status === 'confirmed') && (
-                    <button className="btn btn-sm btn-status-assemble" onClick={() => handleAssemble(order.id)} aria-label="Marcar como ensamblado">
-                      Ensamblar
+                  {!isOtherWeek && (order.status === 'pending' || order.status === 'confirmed') && (
+                    <button className="btn btn-sm btn-status-assemble" onClick={() => handleAssemble(order.id)} aria-label="Marcar como armado">
+                      Armar
                     </button>
                   )}
-                  {!isHistorical && order.status === 'assembled' && (
+                  {!isOtherWeek && order.status === 'assembled' && (
                     <>
                       <button className="btn btn-sm btn-status-deliver" onClick={() => handleDeliver(order.id)} aria-label="Marcar como entregado">
                         Entregar
                       </button>
-                      <button className="btn btn-sm btn-status-undo" onClick={() => handleUnassemble(order.id)} aria-label="Desempaquetar">
-                        Desempaquetar
+                      <button className="btn btn-sm btn-status-undo" onClick={() => handleUnassemble(order.id)} aria-label="Volver a pendiente">
+                        Desarmar
                       </button>
                     </>
                   )}
-                  {!isHistorical && order.status === 'delivered' && (
+                  {!isOtherWeek && order.status === 'delivered' && (
                     <button className="btn btn-sm btn-status-reopen" onClick={() => handleUndoDeliver(order.id)} aria-label="Reabrir pedido">
                       Reabrir
                     </button>
@@ -612,7 +722,7 @@ export default function Orders() {
                     fontSize: 'var(--font-body)',
                     fontWeight: 700
                   }}>
-                    Envío ${order.delivery_fee || 0}
+                    Envío{order.delivery_day ? ` ${DAY_LABELS[order.delivery_day] || order.delivery_day}` : ''} · {fmtMoney(order.delivery_fee || 0)}
                   </span>
                 )}
               </div>
@@ -621,6 +731,20 @@ export default function Orders() {
                   {order.notes}
                 </p>
               )}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderTop: '1px solid var(--border)',
+                paddingTop: 'var(--spacing-sm)'
+              }}>
+                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+                  Cargado: {formatDate(order.created_at) || '—'}
+                </span>
+                <span style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>
+                  {fmtMoney(order.total || 0)}
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -629,7 +753,7 @@ export default function Orders() {
       <Modal
         isOpen={showModal}
         onClose={handleCloseModal}
-        title={editing ? 'Editar Pedido' : 'Nuevo Pedido'}
+        title={editing ? 'Editar Pedido' : form.targetWeek === 'next' && alternateWeek ? `Nuevo Pedido · semana del ${formatWeekRange(alternateWeek.next)}` : 'Nuevo Pedido'}
       >
         <div className="form-group" style={{ position: 'relative' }}>
           <label>Cliente</label>
@@ -695,10 +819,7 @@ export default function Orders() {
                       <button
                         type="button"
                         className="btn btn-primary"
-                        onClick={() => {
-                          setShowNewClientModal(true)
-                          setShowClientDropdown(false)
-                        }}
+                        onClick={openNewClient}
                         style={{ width: '220px', fontSize: 'var(--font-body)' }}
                       >
                         + Cliente
@@ -732,6 +853,16 @@ export default function Orders() {
                       </button>
                     ))
                   )}
+                  {filteredClientOptions.length > 0 && clientSearch.trim() && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={openNewClient}
+                      style={{ width: '100%', borderTop: '1px solid var(--border)', borderRadius: 0 }}
+                    >
+                      + Nuevo cliente "{clientSearch.trim()}"
+                    </button>
+                  )}
                    </div>
               )}
             </>
@@ -752,15 +883,15 @@ export default function Orders() {
                   aria-label={`Plato ${idx + 1}`}
                 >
                   <option value="">Seleccionar...</option>
-                  {activeDishes.map(d => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
+                  {dishOptions.map(d => (
+                    <option key={d.id} value={d.id}>{d.name} — {fmtMoney(d.price || 0)}{d.is_active ? '' : ' (inactivo)'}</option>
                   ))}
                 </select>
               </div>
               <div style={{ flex: 1 }}>
                 <input
                   type="text"
-                  inputMode="decimal"
+                  inputMode="numeric"
                   value={item.quantity}
                   onChange={e => updateItem(idx, 'quantity', e.target.value)}
                   aria-label={`Cantidad plato ${idx + 1}`}
@@ -795,8 +926,9 @@ export default function Orders() {
             </button>
           </div>
           {form.has_delivery && (
-            <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)', alignItems: 'center' }}>
-              <input
+            <>
+              <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)', alignItems: 'center' }}>
+                <input
                 type="text"
                 inputMode="decimal"
                 value={form.delivery_fee}
@@ -820,6 +952,25 @@ export default function Orders() {
                 Guardar
               </button>
             </div>
+            <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginTop: 'var(--spacing-xs)', alignItems: 'center' }}>
+              <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                Día de envío
+              </label>
+              <select
+                value={form.delivery_day}
+                onChange={e => setForm(f => ({ ...f, delivery_day: e.target.value }))}
+                style={{ fontSize: 'var(--font-body)' }}
+              >
+                <option value="lunes">Lunes</option>
+                <option value="martes">Martes</option>
+                <option value="miercoles">Miércoles</option>
+                <option value="jueves">Jueves</option>
+                <option value="viernes">Viernes</option>
+                <option value="sabado">Sábado</option>
+                <option value="domingo">Domingo</option>
+              </select>
+            </div>
+            </>
           )}
         </div>
 
@@ -831,6 +982,31 @@ export default function Orders() {
             rows={2}
             placeholder="Observaciones del pedido..."
           />
+        </div>
+
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px',
+          padding: 'var(--spacing-sm) var(--spacing-md)',
+          background: 'var(--primary-light)',
+          borderRadius: 'var(--radius)',
+          marginBottom: 'var(--spacing-md)',
+          fontSize: 'var(--font-body)'
+        }}>
+          {form.has_delivery && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Platos</span><span>{fmtMoney(formItemsTotal)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Envío</span><span>{fmtMoney(Number(form.delivery_fee) || 0)}</span>
+              </div>
+            </>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 'var(--font-lg)' }}>
+            <span>Total</span><span>{fmtMoney(formTotal)}</span>
+          </div>
         </div>
 
         <div className="form-actions">
@@ -846,54 +1022,14 @@ export default function Orders() {
         onClose={() => setShowNewClientModal(false)}
         title="Nuevo Cliente"
       >
-        <div className="form-row">
-          <div className="form-group">
-            <label>Nombre</label>
-            <input
-              value={newClientForm.name}
-              onChange={e => setNewClientForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="Nombre"
-            />
-          </div>
-          <div className="form-group">
-            <label>Apellido</label>
-            <input
-              value={newClientForm.last_name}
-              onChange={e => setNewClientForm(f => ({ ...f, last_name: e.target.value }))}
-              placeholder="Apellido"
-            />
-          </div>
-        </div>
-        <div className="form-group">
-          <label>Teléfono</label>
-          <input
-            value={newClientForm.phone}
-            onChange={e => setNewClientForm(f => ({ ...f, phone: e.target.value }))}
-            placeholder="Ej: 11 5555 6666"
-            type="tel"
+        {showNewClientModal && (
+          <ClientForm
+            initial={newClientSeed}
+            clients={clients}
+            onSubmit={handleNewClientSave}
+            onCancel={() => setShowNewClientModal(false)}
           />
-        </div>
-        <div className="form-group">
-          <label>Dirección</label>
-          <input
-            value={newClientForm.address}
-            onChange={e => setNewClientForm(f => ({ ...f, address: e.target.value }))}
-            placeholder="Calle, número, localidad"
-          />
-        </div>
-        <div className="form-group">
-          <label>Notas</label>
-          <textarea
-            value={newClientForm.notes}
-            onChange={e => setNewClientForm(f => ({ ...f, notes: e.target.value }))}
-            rows={2}
-            placeholder="Opcional"
-          />
-        </div>
-        <div className="form-actions">
-          <button className="btn btn-ghost" onClick={() => setShowNewClientModal(false)}>Cancelar</button>
-          <button className="btn btn-primary btn-lg" onClick={handleNewClientSave}>Crear cliente</button>
-        </div>
+        )}
       </Modal>
 
       <ConfirmPopup
@@ -922,15 +1058,15 @@ export default function Orders() {
 
       <ConfirmPopup
         isOpen={unassembleConfirmId !== null}
-        message="¿Desempaquetar este pedido? Volverá a estado Confirmado."
-        confirmLabel="Desempaquetar"
+        message="¿Desarmar este pedido? Volverá a Pendiente."
+        confirmLabel="Desarmar"
         onConfirm={confirmUnassemble}
         onCancel={() => setUnassembleConfirmId(null)}
       />
 
       <ConfirmPopup
         isOpen={reopenConfirmId !== null}
-        message="¿Reabrir este pedido? Volverá a estado Ensamblado."
+        message="¿Reabrir este pedido? Volverá a Armado."
         confirmLabel="Reabrir"
         onConfirm={confirmUndoDeliver}
         onCancel={() => setReopenConfirmId(null)}
@@ -939,10 +1075,61 @@ export default function Orders() {
       {pdfPreview && (
         <PdfViewer
           pdfDoc={pdfPreview}
-          title={`etiquetas-piu-${week?.week_start || 'semana'}`}
-          onClose={() => setPdfPreview(null)}
-        />
+          title={`${routeView ? 'hoja-ruta' : 'etiquetas'}-piu-${week?.week_start || 'semana'}`}
+          onClose={() => { setPdfPreview(null); setRouteView(null) }}
+        >
+          {routeView && (routeView.startCoords || routeView.deliveryCoords.length > 0) && (
+            <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
+              <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Mapa de ruta</h3>
+              <Suspense fallback={<div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Cargando mapa…</div>}>
+                <RouteMap startCoords={routeView.startCoords} deliveryCoords={routeView.deliveryCoords} lines={routeView.lines} />
+              </Suspense>
+            </div>
+          )}
+          {routeView?.maps && (
+            <RouteLinksPanel
+              links={routeView.maps}
+              onCopy={async (url) => {
+                try {
+                  await navigator.clipboard.writeText(url)
+                  showToast('Link copiado', 'success')
+                } catch {
+                  showToast('No se pudo copiar el link', 'error')
+                }
+              }}
+            />
+          )}
+        </PdfViewer>
       )}
+
+    </div>
+  )
+}
+
+function RouteLinksPanel({ links, onCopy }) {
+  const rows = DAY_ORDER.filter(d => links[d]).flatMap(day =>
+    links[day].map((leg, i) => ({
+      key: `${day}-${i}`,
+      label: (DAY_LABELS[day] || day) + (links[day].length > 1 ? ` (tramo ${i + 1}/${links[day].length})` : ''),
+      url: leg.url
+    }))
+  )
+  return (
+    <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
+      <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Recorrido en Google Maps</h3>
+      {rows.map(row => (
+        <div key={row.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', flexWrap: 'wrap', padding: 'var(--spacing-xs) 0' }}>
+          <span style={{ flex: 1, minWidth: 120, fontWeight: 600 }}>{row.label}</span>
+          <button className="btn btn-ghost" onClick={() => window.open(row.url, '_blank')}>Abrir</button>
+          <button className="btn btn-ghost" onClick={() => onCopy(row.url)}>Copiar</button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => window.open('https://wa.me/?text=' + encodeURIComponent(`Recorrido ${row.label}: ${row.url}`), '_blank')}
+          >
+            WhatsApp
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

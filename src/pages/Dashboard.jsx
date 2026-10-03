@@ -4,6 +4,7 @@ import { generarHojaProduccion, generarListaCompras } from '../utils/pdf'
 import { SkeletonCard } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
 import { useToast } from '../components/ToastProvider'
+import { formatQty } from '../utils/format'
 
 export default function Dashboard() {
   const showToast = useToast()
@@ -35,7 +36,7 @@ export default function Dashboard() {
       setIngredients(ing || [])
       setError(null)
     } catch (e) {
-      setError('No se pudieron cargar los datos del dashboard.')
+      setError('No se pudieron cargar los datos de producción.')
     }
   }, [])
 
@@ -69,7 +70,7 @@ export default function Dashboard() {
     try {
       await window.piu?.undoProduction(dishId)
       refresh()
-      showToast('Producción deshecha', 'success')
+      showToast('Se restó 1 unidad', 'success')
     } catch (e) {
       setError('No se pudo deshacer la producción.')
     } finally {
@@ -133,16 +134,6 @@ export default function Dashboard() {
     if (!str) return ''
     const [y, m, d] = str.split('-')
     return `${d}/${m}/${y}`
-  }
-
-  const formatQty = (value, unit) => {
-    if (value === undefined || value === null) return '—'
-    let v = value
-    let u = unit
-    if (u === 'l' && v < 1) { v = v * 1000; u = 'ml' }
-    else if (u === 'kg' && v < 1) { v = v * 1000; u = 'g' }
-    const rounded = Math.round(v * 100) / 100
-    return `${rounded} ${u}`
   }
 
   const handlePrintProduction = () => {
@@ -274,7 +265,7 @@ export default function Dashboard() {
         flexWrap: 'wrap'
       }}>
         <div className="card" style={{ flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Pedidos</p>
+          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Unidades pedidas</p>
           <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{totals.total}</p>
         </div>
         <div className="card" style={{ flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
@@ -339,7 +330,10 @@ export default function Dashboard() {
                     fontWeight: 600,
                     fontSize: 'var(--font-body)'
                   }}>
-                    <span>{formatQty(sp.total, sp.unit)} — {sp.name}</span>
+                    <span>
+                      {sp.name}: falta {formatQty(sp.remaining ?? sp.total, sp.unit)}
+                      <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> de {formatQty(sp.total, sp.unit)}</span>
+                    </span>
                     <span style={{
                       fontSize: 'var(--font-sm)',
                       color: 'var(--text-secondary)',
@@ -360,7 +354,10 @@ export default function Dashboard() {
                       {sp.breakdown.map(b => (
                         <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>{b.name}</span>
-                          <span style={{ fontWeight: 600 }}>{formatQty(b.total, b.unit)}</span>
+                          <span style={{ fontWeight: 600 }}>
+                            {formatQty(b.remaining ?? b.total, b.unit)}
+                            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> de {formatQty(b.total, b.unit)}</span>
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -493,9 +490,10 @@ export default function Dashboard() {
                         onClick={() => handleUndo(dish.id)}
                         disabled={savingAction !== null}
                         style={{ fontSize: 'var(--font-sm)' }}
-                        aria-label={`Deshacer producción de ${dish.name}`}
+                        aria-label={`Restar 1 a la producción de ${dish.name}`}
+                        title="Restar 1 unidad producida"
                       >
-                        ↩
+                        −1
                       </button>
                     )}
                   </div>
@@ -513,7 +511,6 @@ export default function Dashboard() {
                     background: done ? 'var(--success)' : 'var(--primary)',
                     borderRadius: '100px',
                     transition: 'width 0.5s ease',
-                    minWidth: '20px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -554,30 +551,34 @@ export default function Dashboard() {
                       fontSize: 'var(--font-sm)',
                       color: 'var(--text-secondary)'
                     }}>
-                      <div style={{ fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
-                        Ingredientes
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-sm)', fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
+                        <span>Ingredientes</span>
+                        <span>{remaining > 0 ? `Para lo que falta (${remaining} u.)` : 'Por unidad'}</span>
                       </div>
-                      {fullDish.ingredients.map((ing, i) => (
-                        <div key={i}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-sm)' }}>
-                            <span>{ing.name}</span>
-                            <span style={{ fontWeight: 600, color: 'var(--text)' }}>
-                              {ing.quantity} {ing.unit}
-                              {ing.subtotal > 0 && ` ($${ing.subtotal.toFixed(2)})`}
-                            </span>
-                          </div>
-                          {ing.subIngredients && ing.subIngredients.length > 0 && (
-                            <div style={{ marginLeft: 'var(--spacing-md)', marginBottom: 'var(--spacing-xs)' }}>
-                              {ing.subIngredients.map((si, j) => (
-                                <div key={j} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-xs)' }}>
-                                  <span>└ {si.name}</span>
-                                  <span>{formatQty(si.quantity * ing.quantity, si.unit)}</span>
-                                </div>
-                              ))}
+                      {fullDish.ingredients.map((ing, i) => {
+                        const factor = remaining > 0 ? remaining : 1
+                        return (
+                          <div key={i}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-sm)' }}>
+                              <span>{ing.name}</span>
+                              <span>
+                                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{formatQty(ing.quantity * factor, ing.unit)}</span>
+                                {remaining > 0 && <span> · {formatQty(ing.quantity, ing.unit)} por unidad</span>}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            {ing.subIngredients && ing.subIngredients.length > 0 && (
+                              <div style={{ marginLeft: 'var(--spacing-md)', marginBottom: 'var(--spacing-xs)' }}>
+                                {ing.subIngredients.map((si, j) => (
+                                  <div key={j} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-xs)' }}>
+                                    <span>└ {si.name}</span>
+                                    <span>{formatQty(si.quantity * ing.quantity * factor, si.unit)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })()}

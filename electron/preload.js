@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('piu', {
   deleteOrder: (id) => ipcRenderer.invoke('piu:deleteOrder', { id }),
   getOrderWithDetails: (id) => ipcRenderer.invoke('piu:getOrderWithDetails', { id }),
   getOrdersByWeekId: (weekId) => ipcRenderer.invoke('piu:getOrdersByWeekId', { weekId }),
+  getClientOrderHistory: (clientId) => ipcRenderer.invoke('piu:getClientOrderHistory', { clientId }),
   getDishes: () => ipcRenderer.invoke('piu:getDishes'),
   createDish: (data) => ipcRenderer.invoke('piu:createDish', data),
   updateDish: (data) => ipcRenderer.invoke('piu:updateDish', data),
@@ -30,7 +31,8 @@ contextBridge.exposeInMainWorld('piu', {
   unmarkOrderAssembled: (id) => ipcRenderer.invoke('piu:unmarkOrderAssembled', { id }),
   markOrderDelivered: (id) => ipcRenderer.invoke('piu:markOrderDelivered', { id }),
   unmarkOrderDelivered: (id) => ipcRenderer.invoke('piu:unmarkOrderDelivered', { id }),
-  clientHasOrderThisWeek: (clientId) => ipcRenderer.invoke('piu:clientHasOrderThisWeek', { clientId }),
+  clientHasOrderThisWeek: (clientId, weekId) => ipcRenderer.invoke('piu:clientHasOrderThisWeek', { clientId, weekId }),
+  getOrCreateNextWeek: () => ipcRenderer.invoke('piu:getOrCreateNextWeek'),
   getMonthlyTrend: () => ipcRenderer.invoke('piu:getMonthlyTrend'),
   getYearlyTrend: () => ipcRenderer.invoke('piu:getYearlyTrend'),
   getMonthComparison: () => ipcRenderer.invoke('piu:getMonthComparison'),
@@ -48,6 +50,7 @@ contextBridge.exposeInMainWorld('piu', {
   getDishTimeSeries: (dishId, startDate, endDate) => ipcRenderer.invoke('piu:getDishTimeSeries', { dishId, startDate, endDate }),
   getClientTimeSeries: (clientId, startDate, endDate) => ipcRenderer.invoke('piu:getClientTimeSeries', { clientId, startDate, endDate }),
   getIngredients: () => ipcRenderer.invoke('piu:getIngredients'),
+  getIngredientUsage: (id) => ipcRenderer.invoke('piu:getIngredientUsage', { id }),
   createIngredient: (data) => ipcRenderer.invoke('piu:createIngredient', data),
   updateIngredient: (data) => ipcRenderer.invoke('piu:updateIngredient', data),
   deleteIngredient: (id) => ipcRenderer.invoke('piu:deleteIngredient', { id }),
@@ -56,6 +59,8 @@ contextBridge.exposeInMainWorld('piu', {
   getIngredientCategories: () => ipcRenderer.invoke('piu:getIngredientCategories'),
   getDefaultDeliveryFee: () => ipcRenderer.invoke('piu:getDefaultDeliveryFee'),
   setDefaultDeliveryFee: (fee) => ipcRenderer.invoke('piu:setDefaultDeliveryFee', { fee }),
+  getStartLocation: () => ipcRenderer.invoke('piu:getStartLocation'),
+  setStartLocation: (loc) => ipcRenderer.invoke('piu:setStartLocation', { loc }),
   getPriceReview: (threshold) => ipcRenderer.invoke('piu:getPriceReview', threshold),
   markIngredientUpdated: (id) => ipcRenderer.invoke('piu:markIngredientUpdated', { id }),
   markDishPriceUpdated: (id) => ipcRenderer.invoke('piu:markDishPriceUpdated', { id }),
@@ -63,5 +68,5 @@ contextBridge.exposeInMainWorld('piu', {
   importData: (newData) => ipcRenderer.invoke('piu:importData', newData),
   saveFile: ({ content, defaultName, ext }) => ipcRenderer.invoke('piu:saveFile', { content, defaultName, ext }),
   getSalesForExport: (startDate, endDate) => ipcRenderer.invoke('piu:getSalesForExport', { startDate, endDate }),
-  exportAnalyticsExcel: () => ipcRenderer.invoke('piu:exportAnalyticsExcel')
+  exportAnalyticsExcel: (range) => ipcRenderer.invoke('piu:exportAnalyticsExcel', range)
 })

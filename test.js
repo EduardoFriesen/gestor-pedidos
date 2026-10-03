@@ -198,18 +198,16 @@ function testNegativePrice(store) {
   assert(dish && dish.price === 0, 'Negative price clamped to 0', dish ? `price=${dish.price}` : 'dish not found', 'high')
 }
 
-function testUndoRemovesAll(store, { dishIds }) {
-  console.log('\n🟠 TEST 10: Undo removes all today production')
-  store.addProduction(dishIds['Empanada carne'], 5)
-  const before = store.getDashboard()
-  const beforeProd = before.dishes.find(d => d.id === dishIds['Empanada carne'])?.total_produced || 0
-  store.undoProduction(dishIds['Empanada carne'])
-  const after = store.getDashboard()
-  const afterProd = after.dishes.find(d => d.id === dishIds['Empanada carne'])?.total_produced || 0
-  assert(afterProd === 0, 'Undo removed all production (not just 1 unit)', `before=${beforeProd} after=${afterProd}`, 'high')
-  if (beforeProd > 1 && afterProd > 0) {
-    console.log(`     HINT: Expected undo to remove ALL units (${beforeProd}→0), but removed only ${beforeProd - afterProd}`)
-  }
+function testUndoSubtractsOne(store, { dishIds }) {
+  console.log('\n🟠 TEST 10: Undo subtracts one unit')
+  const id = dishIds['Empanada carne']
+  const prod = () => store.getDashboard().dishes.find(d => d.id === id)?.total_produced || 0
+  const start = prod()
+  store.addProduction(id, 5)
+  store.undoProduction(id)
+  assert(prod() === start + 4, 'Undo subtracts exactly 1 unit', `start=${start} after=${prod()}`, 'high')
+  for (let i = 0; i < 4; i++) store.undoProduction(id)
+  assert(prod() === start, 'Repeated undo goes back to the start', `start=${start} after=${prod()}`)
 }
 
 function testEmptyClientName(store, { weekId, dishIds }) {
@@ -328,14 +326,17 @@ function testPeriodComparisonOrderChange(store) {
   const p2 = store.getPeriodComparison('2024-06-01', '2024-06-30', '2020-01-01', '2020-01-31')
   assert(p2 && p2.period2, 'Reversed periods', JSON.stringify(p2))
   const revPct = p2.changes.orders
-  assert(typeof revPct === 'string' || typeof revPct === 'number', 'Percentage change is numeric', `type=${typeof revPct}`)
+  assert(revPct === null, 'Change vs empty base period is null (not 0%)', `orders=${revPct}`)
+  assert(typeof p1.changes.orders === 'number' || p1.changes.orders === null, 'Percentage change is number or null', `type=${typeof p1.changes.orders}`)
 }
 
 function testPeriodComparisonSamePeriod(store) {
   console.log('\n🟡 TEST: Period comparison with same period')
-  const comp = store.getPeriodComparison('2024-06-01', '2024-06-30', '2024-06-01', '2024-06-30')
+  const comp = store.getPeriodComparison(null, null, null, null)
   assert(comp && comp.changes, 'Same period comparison works', JSON.stringify(comp))
-  assert(comp.changes.orders === '0.0' || comp.changes.orders === 0, 'Same period has 0% change', `orders=${comp.changes.orders}`)
+  assert(comp.period1.orders > 0, 'Same-period comparison has data', `orders=${comp.period1.orders}`)
+  assert(comp.changes.orders === 0 && comp.changes.revenue === 0, 'Same period has 0% change', `orders=${comp.changes.orders} revenue=${comp.changes.revenue}`)
+  assert(comp.changes.margin === 0, 'Same period margin change is 0 pp', `margin=${comp.changes.margin}`)
 }
 
 function testDashboardEdgeCases(store) {
@@ -543,7 +544,364 @@ function testClientHasOrderThisWeek(store, { clientIds }) {
   assert(typeof hasNonExistent === 'boolean', 'Non-existent client returns boolean', `got ${typeof hasNonExistent}`)
 }
 
+function testGetClientOrderHistory(store, { weekId, dishIds }) {
+  console.log('\n🟠 TEST: getClientOrderHistory')
+  const c = store.createClient({ name: 'Historial', last_name: 'Test', phone: '', address: '' })
+  store.createOrder({ clientId: c.id, weekId, items: [{ dishId: dishIds['Muzzarella'], quantity: 2 }, { dishId: dishIds['Lomito completo'], quantity: 1 }], has_delivery: true, delivery_fee: 500 })
+  store.createOrder({ clientId: c.id, weekId, items: [{ dishId: dishIds['Empanada carne'], quantity: 3 }], has_delivery: false })
+
+  const history = store.getClientOrderHistory(c.id)
+  assert(history.length === 2, 'Client has 2 orders', `got length ${history.length}`)
+  assert(history[0].has_delivery === false, 'Most recent order (no delivery) first (desc sort)', `got ${history[0].has_delivery}`)
+  assert(history[0].total === 3 * 3200, 'No-delivery total is 9600', `got ${history[0].total}`)
+  const withDelivery = history[1]
+  assert(withDelivery.has_delivery === true && withDelivery.delivery_fee === 500, 'Delivery order has fee 500', `fee=${withDelivery.delivery_fee}`)
+  const expectedItems = 2 * 3800 + 1 * 5200
+  assert(withDelivery.items_total === expectedItems, `items_total is ${expectedItems}`, `got ${withDelivery.items_total}`)
+  assert(withDelivery.total === expectedItems + 500, `total is ${expectedItems + 500}`, `got ${withDelivery.total}`)
+  assert(withDelivery.items.length === 2, 'items.length is 2', `got ${withDelivery.items.length}`)
+  assert(withDelivery.items[0].dish_name === 'Muzzarella', 'dish_name resolved', `got ${withDelivery.items[0].dish_name}`)
+  assert(withDelivery.items[0].subtotal === 7600, 'subtotal computed', `got ${withDelivery.items[0].subtotal}`)
+  assert(withDelivery.client_name.includes('Historial'), 'client_name attached', `got ${withDelivery.client_name}`)
+
+  const empty = store.getClientOrderHistory(99999)
+  assert(Array.isArray(empty) && empty.length === 0, 'Unknown client returns empty', `got length ${empty.length}`)
+}
+
+function testGetOrdersByWeekId(store, { weekId, dishIds }) {
+  console.log('\n🟠 TEST: getOrdersByWeekId (historical view fields)')
+  const c = store.createClient({ name: 'Semana', last_name: 'Hist', phone: '112233', address: 'Calle 99' })
+  const r = store.createOrder({ clientId: c.id, weekId, items: [{ dishId: dishIds['Muzzarella'], quantity: 2 }, { dishId: dishIds['Empanada carne'], quantity: 1 }], has_delivery: true, delivery_fee: 300 })
+  const orders = store.getOrdersByWeekId(weekId)
+  const order = orders.find(o => o.id === r.id)
+  assert(order, 'Order found in week', 'not found')
+  assert(order.client_name === 'Semana Hist', 'client_name resolved', `got ${order.client_name}`)
+  assert(order.client_phone === '112233', 'client_phone set', `got ${order.client_phone}`)
+  assert(order.name === 'Semana' && order.last_name === 'Hist', 'client name/last_name preserved (labels)', `got ${order.name} ${order.last_name}`)
+  assert(order.address === 'Calle 99', 'client address preserved (labels)', `got ${order.address}`)
+  assert(order.has_delivery === true && order.delivery_fee === 300, 'delivery fields present', `fee=${order.delivery_fee}`)
+  const expectedItems = 2 * 3800 + 1 * 3200
+  assert(order.items_total === expectedItems, `items_total is ${expectedItems}`, `got ${order.items_total}`)
+  assert(order.total === expectedItems + 300, `total is ${expectedItems + 300}`, `got ${order.total}`)
+  assert(order.items.length === 2, 'items.length is 2', `got ${order.items.length}`)
+  assert(order.items[0].dish_name === 'Muzzarella', 'dish_name resolved', `got ${order.items[0].dish_name}`)
+  assert(order.items[0].subtotal === 7600, 'subtotal computed', `got ${order.items[0].subtotal}`)
+  assert(order.created_at, 'created_at present', '')
+}
+
+function testCreateOrderDeliveryDay(store, seed) {
+  log('\n--- testCreateOrderDeliveryDay ---')
+  const { dishIds, clientIds, weekId } = seed
+
+  const r1 = store.createOrder({
+    clientId: clientIds[0], weekId,
+    items: [{ dishId: dishIds['Muzzarella'], quantity: 1 }],
+    has_delivery: true, delivery_fee: 500, delivery_day: 'sabado'
+  })
+  assert(r1.success, 'order created with delivery_day=sabado')
+
+  const orders = store.getOrdersByWeekId(weekId)
+  const order = orders.find(o => o.id === r1.id)
+  assert(order?.delivery_day === 'sabado', 'delivery_day stored as sabado', `got: ${order?.delivery_day}`)
+
+  const r2 = store.createOrder({
+    clientId: clientIds[1], weekId,
+    items: [{ dishId: dishIds['Lomito completo'], quantity: 1 }],
+    has_delivery: true, delivery_fee: 300
+  })
+  assert(r2.success, 'order created without delivery_day (default viernes)')
+
+  const orders2 = store.getOrdersByWeekId(weekId)
+  const order2 = orders2.find(o => o.id === r2.id)
+  assert(order2?.delivery_day === 'viernes', 'default delivery_day is viernes', `got: ${order2?.delivery_day}`)
+
+  const r3 = store.createOrder({
+    clientId: clientIds[2], weekId,
+    items: [{ dishId: dishIds['Empanada carne'], quantity: 1 }],
+    has_delivery: false
+  })
+  assert(r3.success, 'order created without delivery')
+
+  const orders3 = store.getOrdersByWeekId(weekId)
+  const order3 = orders3.find(o => o.id === r3.id)
+  assert(order3?.delivery_day === null, 'delivery_day is null when no delivery', `got: ${order3?.delivery_day}`)
+}
+
+function withFixtureStore(fixture, fn) {
+  const file = path.join(__dirname, 'piu.analytics.test.json')
+  fs.writeFileSync(file, JSON.stringify({ weeks: [], dishes: [], clients: [], orders: [], orderItems: [], productionLog: [], ingredients: [], deliverySettings: { defaultFee: 500 }, _nextId: 100, ...fixture }))
+  const modPath = require.resolve('./electron/store')
+  const cached = require.cache[modPath]
+  delete require.cache[modPath]
+  const fresh = require('./electron/store')
+  try {
+    fresh.init(file)
+    fn(fresh)
+  } finally {
+    delete require.cache[modPath]
+    if (cached) require.cache[modPath] = cached
+    try { fs.unlinkSync(file) } catch {}
+  }
+}
+
+function testAnalyticsDateRangeAndAverages() {
+  log('\n--- testAnalyticsDateRangeAndAverages ---')
+  const prevTZ = process.env.TZ
+  process.env.TZ = 'America/Argentina/Cordoba'
+  try {
+    withFixtureStore({
+      weeks: [
+        { id: 1, week_start: '2026-07-05', week_end: '2026-07-11' },
+        { id: 2, week_start: '2026-07-12', week_end: '2026-07-18' }
+      ],
+      dishes: [{ id: 10, name: 'Tarta', price: 1200, ingredients: [], is_active: true }],
+      clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+      orders: [
+        { id: 30, week_id: 1, client_id: 20, status: 'delivered', created_at: '2026-07-11 22:30:00' },
+        { id: 31, week_id: 2, client_id: 20, status: 'delivered', created_at: '2026-07-13 10:00:00' },
+        { id: 32, week_id: 2, client_id: 20, status: 'delivered', created_at: '2026-07-13 18:00:00' }
+      ],
+      orderItems: [
+        { order_id: 30, dish_id: 10, quantity: 1, unit_price: 1000, unit_cost: 400 },
+        { order_id: 31, dish_id: 10, quantity: 3, unit_price: 1000, unit_cost: 400 },
+        { order_id: 32, dish_id: 10, quantity: 1, unit_price: 1400, unit_cost: 600 }
+      ],
+      productionLog: [{ id: 40, week_id: 2, dish_id: 10, quantity_produced: 6, date_produced: '2026-07-12' }]
+    }, (st) => {
+      const week = st.getAnalyticsFiltered('2026-07-12', '2026-07-18')
+      assert(week.totalOrders === 2, 'Saturday 22:30 order is not counted in the next week (TZ -03)', `totalOrders=${week.totalOrders}`, 'high')
+      const monday = week.dayOfWeek.find(d => d.day === 1)
+      assert(monday.count === 2, 'Orders per weekday counts distinct orders, not items', `monday=${monday.count}`, 'high')
+      const tarta = week.topDishes.find(d => d.id === 10)
+      assert(tarta.total === 4, 'Units sold in range', `total=${tarta.total}`)
+      assert(Math.abs(tarta.price - 1100) < 1e-9 && Math.abs(tarta.cost - 450) < 1e-9, 'Dish price/cost are period averages', `price=${tarta.price} cost=${tarta.cost}`)
+      assert(Math.abs(tarta.profit - 650) < 1e-9 && Math.abs(tarta.margin - 650 / 1100 * 100) < 1e-9, 'Dish profit/unit and margin use averages', `profit=${tarta.profit} margin=${tarta.margin}`)
+      const over = st.getOverproductionInRange('2026-07-12', '2026-07-18')
+      const od = over.perDish.find(d => d.dishId === 10)
+      assert(od && od.produced === 6 && od.overproduction === 2, 'Production on the first day of the range is included', JSON.stringify(od))
+      const series = st.getDishTimeSeries(10, '2026-07-12', '2026-07-18')
+      assert(series.length === 1 && series[0].produced === 6, 'Dish time series includes first-day production', JSON.stringify(series))
+      const comp = st.getPeriodComparison('2026-07-05', '2026-07-11', '2026-07-12', '2026-07-18')
+      assert(comp.changes.orders === 100, 'Order change is numeric percent', `orders=${comp.changes.orders}`)
+      assert(comp.changes.margin === Math.round((comp.period2.margin - comp.period1.margin) * 10) / 10, 'Margin change is in percentage points', `margin=${comp.changes.margin}`)
+    })
+  } finally {
+    if (prevTZ === undefined) delete process.env.TZ
+    else process.env.TZ = prevTZ
+  }
+}
+
+function testStartLocation(store) {
+  log('\n--- testStartLocation ---')
+  assert(store.getStartLocation() === null, 'Start location defaults to null')
+  const loc = { address: 'Av. Colón 500, Córdoba', lat: -31.41, lng: -64.19, city: 'Córdoba', countryCode: 'ar' }
+  const r = store.setStartLocation(loc)
+  assert(r.success === true, 'setStartLocation succeeds with valid coords')
+  const got = store.getStartLocation()
+  assert(got && got.lat === -31.41 && got.lng === -64.19 && got.city === 'Córdoba' && got.address === loc.address, 'getStartLocation returns saved location', JSON.stringify(got))
+  const bad = store.setStartLocation({ address: 'x', lat: 'abc', lng: 10 })
+  assert(bad.success === false, 'Invalid coords are rejected')
+  const outOfRange = store.setStartLocation({ address: 'x', lat: 120, lng: 10 })
+  assert(outOfRange.success === false, 'Out-of-range latitude is rejected')
+  assert(store.getStartLocation()?.lat === -31.41, 'Rejected update keeps previous location')
+  store.setDefaultDeliveryFee(700)
+  assert(store.getStartLocation()?.lat === -31.41 && store.getDefaultDeliveryFee() === 700, 'Start location coexists with default fee')
+  store.setStartLocation(null)
+  assert(store.getStartLocation() === null, 'setStartLocation(null) clears it')
+  store.setDefaultDeliveryFee(500)
+}
+
+function testClientLocality(store, { weekId, dishIds }) {
+  log('\n--- testClientLocality ---')
+  const c = store.createClient({ name: 'Loc', last_name: 'Test', address: 'Mitre 100', locality: 'Quilmes' })
+  const created = store.getClients().find(x => x.id === c.id)
+  assert(created?.locality === 'Quilmes', 'createClient persists locality', JSON.stringify(created))
+  store.updateClient({ id: c.id, name: 'Loc', last_name: 'Test', address: 'Mitre 100', locality: 'Bernal' })
+  const updated = store.getClients().find(x => x.id === c.id)
+  assert(updated?.locality === 'Bernal', 'updateClient persists locality', JSON.stringify(updated))
+  const noLoc = store.createClient({ name: 'SinLoc', address: 'Calle 1' })
+  assert(store.getClients().find(x => x.id === noLoc.id)?.locality === '', 'Missing locality stored as empty string')
+  const r = store.createOrder({ clientId: c.id, weekId, items: [{ dishId: dishIds[Object.keys(dishIds)[0]], quantity: 1 }], has_delivery: true, delivery_fee: 0 })
+  const order = store.getOrdersByWeekId(weekId).find(o => o.id === r.id)
+  assert(order?.client_locality === 'Bernal', 'Orders expose client_locality', order ? `client_locality=${order.client_locality}` : 'order not found')
+}
+
+function testUpdateOrderDeliveryDay(store, seed) {
+  log('\n--- testUpdateOrderDeliveryDay ---')
+  const { dishIds, clientIds, weekId } = seed
+
+  const r1 = store.createOrder({
+    clientId: clientIds[0], weekId,
+    items: [{ dishId: dishIds['Muzzarella'], quantity: 1 }],
+    has_delivery: true, delivery_fee: 500, delivery_day: 'lunes'
+  })
+
+  store.updateOrder({
+    id: r1.id, clientId: clientIds[0],
+    items: [{ dishId: dishIds['Muzzarella'], quantity: 2 }],
+    has_delivery: true, delivery_fee: 700, delivery_day: 'domingo'
+  })
+
+  const orders = store.getOrdersByWeekId(weekId)
+  const order = orders.find(o => o.id === r1.id)
+  assert(order?.delivery_day === 'domingo', 'delivery_day updated to domingo', `got: ${order?.delivery_day}`)
+  assert(order?.delivery_fee === 700, 'delivery_fee updated to 700', `got: ${order?.delivery_fee}`)
+
+  store.updateOrder({
+    id: r1.id, clientId: clientIds[0],
+    items: [{ dishId: dishIds['Muzzarella'], quantity: 1 }],
+    has_delivery: false, delivery_fee: 0
+  })
+
+  const orders2 = store.getOrdersByWeekId(weekId)
+  const order2 = orders2.find(o => o.id === r1.id)
+  assert(order2?.delivery_day === null, 'delivery_day cleared when delivery removed', `got: ${order2?.delivery_day}`)
+}
+
 // ============================== MAIN ==============================
+
+function testOrderSnapshotOnEdit() {
+  log('\n--- testOrderSnapshotOnEdit ---')
+  withFixtureStore({
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }]
+  }, (s) => {
+    const week = s.getCurrentWeek()
+    const r = s.createOrder({ clientId: 20, weekId: week.id, items: [{ dishId: 10, quantity: 2 }], notes: '' })
+    s.updateDish({ id: 10, name: 'Tarta', price: 1500, ingredients: [], is_active: true })
+    s.updateOrder({ id: r.id, clientId: 20, items: [{ dishId: 10, quantity: 3 }], notes: 'nota' })
+    const order = s.getOrders().find(o => o.id === r.id)
+    assert(order.items[0].unit_price === 1000, 'Edit keeps the original unit price', `unit_price=${order.items[0].unit_price}`, 'high')
+    assert(order.total === 3000, 'Total uses kept price with new quantity', `total=${order.total}`)
+  })
+}
+
+function testNextWeek() {
+  log('\n--- testNextWeek ---')
+  withFixtureStore({}, (s) => {
+    const current = s.getCurrentWeek()
+    const next = s.getOrCreateNextWeek()
+    const [y, m, d] = current.week_start.split('-').map(Number)
+    const expected = new Date(y, m - 1, d + 7)
+    const expectedStr = `${expected.getFullYear()}-${String(expected.getMonth() + 1).padStart(2, '0')}-${String(expected.getDate()).padStart(2, '0')}`
+    assert(next.week_start === expectedStr, 'Next week starts 7 days later', `${current.week_start} → ${next.week_start}`)
+    assert(!next.is_current, 'Next week is not current')
+    assert(s.getOrCreateNextWeek().id === next.id, 'getOrCreateNextWeek is idempotent')
+    assert(s.getCurrentWeek().id === current.id, 'Current week unchanged')
+    assert(s.getPreviousWeeks().some(w => w.id === next.id), 'Next week listed in week selector')
+  })
+  withFixtureStore({}, (s) => {
+    const cur = s.getCurrentWeek()
+    const fixtureStart = cur.week_start
+    s.importData({ weeks: [{ id: 5, week_start: fixtureStart, week_end: cur.week_end, is_current: false }], dishes: [], clients: [], orders: [], orderItems: [], productionLog: [], ingredients: [], _nextId: 50 })
+    const w = s.ensureCurrentWeek()
+    assert(w.id === 5, 'ensureCurrentWeek reuses a pre-created week', `id=${w.id}`, 'high')
+    assert(s.getExportData().weeks.filter(x => x.week_start === fixtureStart).length === 1, 'No duplicate week created')
+  })
+}
+
+function testOrderInNextWeek() {
+  log('\n--- testOrderInNextWeek ---')
+  withFixtureStore({
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }]
+  }, (s) => {
+    const next = s.getOrCreateNextWeek()
+    s.createOrder({ clientId: 20, weekId: next.id, items: [{ dishId: 10, quantity: 1 }] })
+    assert(s.getOrders().length === 0, 'Next-week order not in current week')
+    assert(s.getOrdersByWeekId(next.id).length === 1, 'Next-week order stored in next week')
+    assert(s.clientHasOrderThisWeek(20, next.id) === true, 'clientHasOrderThisWeek honours weekId')
+    assert(s.clientHasOrderThisWeek(20) === false, 'clientHasOrderThisWeek defaults to current week')
+  })
+}
+
+function testCompositeCostPropagation() {
+  log('\n--- testCompositeCostPropagation ---')
+  withFixtureStore({
+    ingredients: [
+      { id: 1, name: 'Harina', unit: 'kg', cost: 100, is_active: true, subIngredients: [], batchYield: 1 },
+      { id: 2, name: 'Masa', unit: 'kg', cost: 0, is_active: true, subIngredients: [{ ingredientId: 1, quantity: 2 }], batchYield: 2 },
+      { id: 3, name: 'Tapa', unit: 'uni', cost: 0, is_active: true, subIngredients: [{ ingredientId: 2, quantity: 1 }], batchYield: 10 }
+    ]
+  }, (s) => {
+    const cost = (id) => s.getIngredients().find(i => i.id === id).cost
+    assert(Math.abs(cost(2) - 100) < 1e-9, 'Composite cost recalculated on init', `masa=${cost(2)}`)
+    s.updateIngredient({ id: 1, name: 'Harina', unit: 'kg', cost: 200, is_active: true, subIngredients: [] })
+    assert(Math.abs(cost(2) - 200) < 1e-9, 'Composite follows base cost change', `masa=${cost(2)}`, 'high')
+    assert(Math.abs(cost(3) - 20) < 1e-9, 'Nested composite follows base cost change', `tapa=${cost(3)}`, 'high')
+  })
+}
+
+function testIngredientUnitChange() {
+  log('\n--- testIngredientUnitChange ---')
+  withFixtureStore({
+    ingredients: [
+      { id: 1, name: 'Queso', unit: 'kg', cost: 1000, is_active: true, subIngredients: [], batchYield: 1 },
+      { id: 2, name: 'Relleno', unit: 'kg', cost: 0, is_active: true, subIngredients: [{ ingredientId: 1, quantity: 0.5 }], batchYield: 1 }
+    ],
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [{ ingredientId: 1, quantity: 0.2 }], is_active: true }]
+  }, (s) => {
+    const before = s.calculateDishCost(10)
+    s.updateIngredient({ id: 1, name: 'Queso', unit: 'g', cost: 1, is_active: true, subIngredients: [] })
+    const dishQty = s.getExportData().dishes[0].ingredients[0].quantity
+    assert(Math.abs(dishQty - 200) < 1e-9, 'Dish quantity converted kg → g', `qty=${dishQty}`, 'high')
+    assert(Math.abs(s.calculateDishCost(10) - before) < 1e-9, 'Dish cost unchanged after unit change', `${before} → ${s.calculateDishCost(10)}`, 'high')
+    const subQty = s.getIngredients().find(i => i.id === 2).subIngredients[0].quantity
+    assert(Math.abs(subQty - 500) < 1e-9, 'Sub-product quantity converted kg → g', `qty=${subQty}`)
+    const r = s.updateIngredient({ id: 1, name: 'Queso', unit: 'uni', cost: 1, is_active: true, subIngredients: [] })
+    assert(r.success === false && r.reason === 'unit_in_use', 'Incompatible unit change blocked when in use', JSON.stringify(r))
+    const usage = s.getIngredientUsage(1)
+    assert(usage.dishes.includes('Tarta') && usage.subProducts.includes('Relleno'), 'getIngredientUsage lists dishes and sub-products', JSON.stringify(usage))
+  })
+}
+
+function testClientOrderStats() {
+  log('\n--- testClientOrderStats ---')
+  withFixtureStore({
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }, { id: 21, name: 'Beto', last_name: 'B' }],
+    orders: [
+      { id: 30, week_id: 1, client_id: 20, status: 'delivered', created_at: '2026-07-01 10:00:00' },
+      { id: 31, week_id: 1, client_id: 20, status: 'delivered', created_at: '2026-07-08 10:00:00' }
+    ]
+  }, (s) => {
+    const ana = s.getClients().find(c => c.id === 20)
+    const beto = s.getClients().find(c => c.id === 21)
+    assert(ana.order_count === 2 && ana.last_order_at === '2026-07-08 10:00:00', 'getClients returns order_count and last_order_at', JSON.stringify(ana))
+    assert(beto.order_count === 0 && beto.last_order_at === null, 'Client without orders has zero count', JSON.stringify(beto))
+  })
+}
+
+function testProductionFixes() {
+  log('\n--- testProductionFixes ---')
+  withFixtureStore({
+    dishes: [
+      { id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true },
+      { id: 11, name: 'Ñoquis', price: 1000, ingredients: [], is_active: true }
+    ],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }]
+  }, (s) => {
+    const week = s.getCurrentWeek()
+    s.createOrder({ clientId: 20, weekId: week.id, items: [{ dishId: 10, quantity: 5 }, { dishId: 11, quantity: 5 }] })
+    s.addProduction(10, 8)
+    s.addProduction(11, 2)
+    const dash = s.getDashboard()
+    assert(dash.totals.overproduction === 3, 'Overproduction summed per dish, not netted', `got ${dash.totals.overproduction}`, 'high')
+
+    s.importData({ ...s.getExportData(), productionLog: [{ id: 90, week_id: week.id, dish_id: 11, quantity_produced: 2, date_produced: '2000-01-01' }] })
+    s.undoProduction(11)
+    const prod11 = s.getDashboard().dishes.find(d => d.id === 11).total_produced
+    assert(prod11 === 1, 'Undo works on production from another day', `produced=${prod11}`, 'high')
+
+    s.completeDishProduction(11)
+    s.completeDishProduction(10)
+    const entries = s.getExportData().productionLog.filter(pl => pl.dish_id === 11)
+    const today = entries.filter(pl => pl.date_produced !== '2000-01-01')
+    assert(today.length === 1, 'Complete merges into the day entry', `entries today=${today.length}`)
+
+    s.updateDish({ id: 11, name: 'Ñoquis', price: 1000, ingredients: [], is_active: false })
+    assert(s.getDashboard().dishes.some(d => d.id === 11), 'Inactive dish with orders stays in production', '', 'high')
+  })
+}
 
 function main() {
   console.log('╔══════════════════════════════════════╗')
@@ -560,7 +918,7 @@ function main() {
   testMonthComparisonFeb(store)
   testNegativeQuantity(store, seed)
   testNegativePrice(store)
-  testUndoRemovesAll(store, seed)
+  testUndoSubtractsOne(store, seed)
   testEmptyClientName(store, seed)
   testDeliveryFeeZero(store, seed)
   testGetDishesMutation(store)
@@ -583,6 +941,20 @@ function main() {
   testStringWhitespaceClient(store, seed)
   testCompleteDishOverProduction(store, seed)
   testClientHasOrderThisWeek(store, seed)
+  testGetClientOrderHistory(store, seed)
+  testGetOrdersByWeekId(store, seed)
+  testCreateOrderDeliveryDay(store, seed)
+  testUpdateOrderDeliveryDay(store, seed)
+  testClientLocality(store, seed)
+  testStartLocation(store)
+  testAnalyticsDateRangeAndAverages()
+  testOrderSnapshotOnEdit()
+  testNextWeek()
+  testOrderInNextWeek()
+  testCompositeCostPropagation()
+  testIngredientUnitChange()
+  testClientOrderStats()
+  testProductionFixes()
   testCompositeIngredient(store)
   testCompositeShoppingListLocal(store, seed)
   testCircularComposite(store)

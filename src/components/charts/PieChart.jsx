@@ -1,6 +1,7 @@
 import React from 'react'
 
-export default function PieChart({ data, size = 200, title }) {
+export default function PieChart({ data: rawData, size = 200, title }) {
+  const data = rawData.filter(d => d.value > 0)
   const total = data.reduce((s, d) => s + d.value, 0)
   if (total === 0) return null
   const cx = size / 2, cy = size / 2, r = size / 2 - 8, ir = size / 4

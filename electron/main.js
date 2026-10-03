@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const XLSX = require('xlsx')
@@ -18,6 +18,7 @@ function registerIpcHandlers() {
   ipcMain.handle('piu:deleteOrder', (_, { id }) => store.deleteOrder(id))
   ipcMain.handle('piu:getOrderWithDetails', (_, { id }) => store.getOrderWithDetails(id))
   ipcMain.handle('piu:getOrdersByWeekId', (_, { weekId }) => store.getOrdersByWeekId(weekId))
+  ipcMain.handle('piu:getClientOrderHistory', (_, { clientId }) => store.getClientOrderHistory(clientId))
   ipcMain.handle('piu:getDishes', () => store.getDishes())
   ipcMain.handle('piu:createDish', (_, data) => store.createDish(data))
   ipcMain.handle('piu:updateDish', (_, data) => store.updateDish(data))
@@ -36,7 +37,8 @@ function registerIpcHandlers() {
   ipcMain.handle('piu:unmarkOrderAssembled', (_, { id }) => store.unmarkOrderAssembled(id))
   ipcMain.handle('piu:markOrderDelivered', (_, { id }) => store.markOrderDelivered(id))
   ipcMain.handle('piu:unmarkOrderDelivered', (_, { id }) => store.unmarkOrderDelivered(id))
-  ipcMain.handle('piu:clientHasOrderThisWeek', (_, { clientId }) => store.clientHasOrderThisWeek(clientId))
+  ipcMain.handle('piu:clientHasOrderThisWeek', (_, { clientId, weekId }) => store.clientHasOrderThisWeek(clientId, weekId))
+  ipcMain.handle('piu:getOrCreateNextWeek', () => store.getOrCreateNextWeek())
   ipcMain.handle('piu:getMonthlyTrend', () => store.getMonthlyTrend())
   ipcMain.handle('piu:getYearlyTrend', () => store.getYearlyTrend())
   ipcMain.handle('piu:getMonthComparison', () => store.getMonthComparison())
@@ -54,6 +56,7 @@ function registerIpcHandlers() {
   ipcMain.handle('piu:getDishTimeSeries', (_, { dishId, startDate, endDate }) => store.getDishTimeSeries(dishId, startDate, endDate))
   ipcMain.handle('piu:getClientTimeSeries', (_, { clientId, startDate, endDate }) => store.getClientTimeSeries(clientId, startDate, endDate))
   ipcMain.handle('piu:getIngredients', () => store.getIngredients())
+  ipcMain.handle('piu:getIngredientUsage', (_, { id }) => store.getIngredientUsage(id))
   ipcMain.handle('piu:createIngredient', (_, data) => store.createIngredient(data))
   ipcMain.handle('piu:updateIngredient', (_, data) => store.updateIngredient(data))
   ipcMain.handle('piu:deleteIngredient', (_, { id }) => store.deleteIngredient(id))
@@ -62,6 +65,8 @@ function registerIpcHandlers() {
   ipcMain.handle('piu:getIngredientCategories', () => store.getIngredientCategories())
   ipcMain.handle('piu:getDefaultDeliveryFee', () => store.getDefaultDeliveryFee())
   ipcMain.handle('piu:setDefaultDeliveryFee', (_, { fee }) => store.setDefaultDeliveryFee(fee))
+  ipcMain.handle('piu:getStartLocation', () => store.getStartLocation())
+  ipcMain.handle('piu:setStartLocation', (_, { loc }) => store.setStartLocation(loc))
   ipcMain.handle('piu:getPriceReview', (_, threshold) => store.getPriceReview(threshold))
   ipcMain.handle('piu:markIngredientUpdated', (_, { id }) => store.markIngredientUpdated(id))
   ipcMain.handle('piu:markDishPriceUpdated', (_, { id }) => store.markDishPriceUpdated(id))
@@ -77,10 +82,15 @@ function registerIpcHandlers() {
     return filePath
   })
   ipcMain.handle('piu:getSalesForExport', (_, { startDate, endDate }) => store.getSalesForExport(startDate, endDate))
-  ipcMain.handle('piu:exportAnalyticsExcel', async () => {
+  ipcMain.handle('piu:exportAnalyticsExcel', async (_, range) => {
     try {
-      const wb = buildExcelWorkbook()
-      const defaultName = `piu_datos_${new Date().toISOString().split('T')[0]}.xlsx`
+      const startDate = range?.startDate || null
+      const endDate = range?.endDate || null
+      const wb = buildExcelWorkbook(startDate, endDate)
+      const suffix = startDate || endDate
+        ? `${startDate || 'inicio'}_a_${endDate || 'hoy'}`
+        : `completo_${new Date().toISOString().split('T')[0]}`
+      const defaultName = `piu_datos_${suffix}.xlsx`
       const { canceled, filePath } = await dialog.showSaveDialog({
         defaultPath: defaultName,
         filters: [{ name: 'Excel', extensions: ['xlsx'] }]
@@ -95,12 +105,12 @@ function registerIpcHandlers() {
   })
 }
 
-function buildExcelWorkbook() {
+function buildExcelWorkbook(startDate = null, endDate = null) {
   const wb = XLSX.utils.book_new()
 
-  const analytics = store.getAnalyticsFiltered(null, null)
+  const analytics = store.getAnalyticsFiltered(startDate, endDate)
   const clients = store.getClients()
-  const sales = store.getSalesForExport(null, null)
+  const sales = store.getSalesForExport(startDate, endDate)
   const fmtMoney = (n) => n != null ? Number(n.toFixed(2)) : 0
 
   const revenue = analytics.revenue || 0
@@ -109,8 +119,10 @@ function buildExcelWorkbook() {
   const margin = revenue > 0 ? (profit / revenue * 100).toFixed(1) : '0'
   const avgTicket = analytics.totalOrders > 0 ? (revenue / analytics.totalOrders).toFixed(2) : '0'
 
+  const periodo = startDate || endDate ? `${startDate || 'inicio'} a ${endDate || 'hoy'}` : 'Todo el historial'
   const resumenRows = [
     ['Métrica', 'Valor'],
+    ['Período', periodo],
     ['Pedidos Totales', analytics.totalOrders || 0],
     ['Ingresos', revenue],
     ['Costos', cost],
@@ -152,8 +164,10 @@ function buildExcelWorkbook() {
   for (const w of exportData.weeks) {
     weekMap[w.id] = { start: w.week_start, end: w.week_end }
   }
+  const inRange = new Set(store.getOrdersInRange(startDate, endDate))
   const weekCounts = {}
   for (const o of exportData.orders) {
+    if (!inRange.has(o.id)) continue
     const wid = o.week_id
     if (!weekCounts[wid]) weekCounts[wid] = { semana: wid, pedidos: 0, clientes: new Set() }
     weekCounts[wid].pedidos++
@@ -215,6 +229,11 @@ function createWindow() {
     title: 'Piu'
   })
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
   const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
 
   if (isDev) {
@@ -229,6 +248,7 @@ app.whenReady().then(() => {
   const dbPath = path.join(app.getPath('userData'), 'piu.json')
   store.init(dbPath)
   store.ensureCurrentWeek()
+  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'geolocation'))
   registerIpcHandlers()
   runAutoExport()
   createWindow()

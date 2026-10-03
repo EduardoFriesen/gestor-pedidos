@@ -6,6 +6,7 @@ import BarChart from '../components/charts/BarChart'
 import GroupedBarChart from '../components/charts/GroupedBarChart'
 import PieChart from '../components/charts/PieChart'
 import { useHeaderContent } from '../components/HeaderContext'
+import { fmtMoney } from '../utils/format'
 
 const PRESETS = [
   { id: 'week', label: 'Esta semana' },
@@ -62,18 +63,61 @@ function formatDate(str) {
   return `${d}/${m}/${y}`
 }
 
-function fmtMoney(n) {
-  return n !== undefined && n !== null ? `$${(n).toFixed(2)}` : '—'
+function fmtNum(n, decimals = 1) {
+  return n.toLocaleString('es-AR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
 }
 
 function pct(n) {
-  return n !== undefined && n !== null ? `${(n).toFixed(1)}%` : '—'
+  return n !== undefined && n !== null && !Number.isNaN(n) ? `${fmtNum(n)}%` : '—'
 }
 
-function pctChange(n) {
-  if (n === undefined || n === null) return '—'
-  const val = parseFloat(n)
-  return `${val > 0 ? '+' : ''}${val.toFixed(1)}%`
+function pctChange(n, unit = '%') {
+  if (n === undefined || n === null || Number.isNaN(n)) return '—'
+  return `${n > 0 ? '+' : ''}${fmtNum(n)}${unit === 'pp' ? ' pp' : '%'}`
+}
+
+function changeOf(oldVal, newVal) {
+  if (!oldVal) return null
+  return (newVal - oldVal) / Math.abs(oldVal) * 100
+}
+
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const QUARTER_ORDINALS = ['1er', '2do', '3er', '4to']
+
+function monthLabel(key) {
+  const [y, m] = key.split('-')
+  return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`
+}
+
+function monthShortLabel(key) {
+  const [y, m] = key.split('-')
+  return `${MONTH_NAMES[parseInt(m, 10) - 1].slice(0, 3)} ${y.slice(2)}`
+}
+
+function quarterLabel(key) {
+  const [y, q] = key.split('-T')
+  return `${QUARTER_ORDINALS[parseInt(q, 10) - 1]} trim. ${y}`
+}
+
+function shortDate(str) {
+  if (!str) return '…'
+  const [, m, d] = str.split('-')
+  return `${parseInt(d, 10)}/${parseInt(m, 10)}`
+}
+
+function rangeLabel(start, end) {
+  return `${shortDate(start)} – ${shortDate(end)}`
+}
+
+const TREND_PERIODS = [
+  { id: 'weekly', label: 'Semanal', unit: 'semana', key: 'week_start' },
+  { id: 'monthly', label: 'Mensual', unit: 'mes', key: 'month' },
+  { id: 'quarterly', label: 'Trimestral', unit: 'trimestre', key: 'quarter' },
+  { id: 'yearly', label: 'Anual', unit: 'año', key: 'year' }
+]
+
+function defaultTrendPeriod(preset) {
+  return preset === 'week' || preset === 'month' ? 'weekly' : 'monthly'
 }
 
 const PIE_COLORS = ['var(--primary)', 'var(--accent)', 'var(--success)', 'var(--warning)', 'var(--danger)', '#8B7B6B', '#6A9A8B', '#7B8FA0', '#9B8B7B', '#C4885C']
@@ -84,7 +128,7 @@ export default function Analytics() {
   const [fullTrends, setFullTrends] = useState({ weekly: [], monthly: [], quarterly: [], yearly: [] })
   const [comparison, setComparison] = useState(null)
   const [tab, setTab] = useState('top')
-  const [trendPeriod, setTrendPeriod] = useState('monthly')
+  const [trendPeriod, setTrendPeriod] = useState(defaultTrendPeriod('week'))
   const [filterPreset, setFilterPreset] = useState('week')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -101,10 +145,13 @@ export default function Analytics() {
   const [dishTimeSeries, setDishTimeSeries] = useState([])
   const [clientTimeSeries, setClientTimeSeries] = useState([])
   const [dishSort, setDishSort] = useState('total')
-  const [dishSortDir, setDishSortDir] = useState('asc')
+  const [dishSortDir, setDishSortDir] = useState('desc')
   const [clientSort, setClientSort] = useState('orders')
-  const [clientSortDir, setClientSortDir] = useState('asc')
+  const [clientSortDir, setClientSortDir] = useState('desc')
   const [overproduction, setOverproduction] = useState(null)
+  const [appliedRange, setAppliedRange] = useState(getPresetRange('week'))
+  const [dishLoading, setDishLoading] = useState(false)
+  const [clientLoading, setClientLoading] = useState(false)
   const [error, setError] = useState(null)
   const [tablePage, setTablePage] = useState(0)
   const [dishPage, setDishPage] = useState(0)
@@ -169,7 +216,8 @@ export default function Analytics() {
           )}
           {overproduction && (
             <StatCard
-              label={overproduction.totalOverproductionCost > 0 ? 'Desperdicio' : 'Desperdicio'}
+              label="Desperdicio"
+              hint="Costo de lo producido que no se vendió en el período"
               value={fmtMoney(overproduction.totalOverproductionCost)}
               highlight={overproduction.totalOverproductionCost > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
             />
@@ -206,14 +254,7 @@ export default function Analytics() {
                 <button
                   key={s.id}
                   className={dishSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-                  onClick={() => {
-                    if (dishSort === s.id) {
-                      setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')
-                    } else {
-                      setDishSort(s.id)
-                      setDishSortDir('asc')
-                    }
-                  }}
+                  onClick={() => setDishSort(s.id)}
                   style={{ fontSize: 'var(--font-sm)' }}
                 >
                   {s.label}
@@ -222,10 +263,10 @@ export default function Analytics() {
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
+                style={{ fontSize: 'var(--font-sm)', fontWeight: 700, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
                 aria-label="Cambiar dirección de orden"
               >
-                {dishSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+                {dishSortDir === 'desc' ? '↓ Mayor primero' : '↑ Menor primero'}
               </button>
             </div>
           )}
@@ -248,14 +289,7 @@ export default function Analytics() {
                 <button
                   key={s.id}
                   className={clientSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-                  onClick={() => {
-                    if (clientSort === s.id) {
-                      setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')
-                    } else {
-                      setClientSort(s.id)
-                      setClientSortDir('asc')
-                    }
-                  }}
+                  onClick={() => setClientSort(s.id)}
                   style={{ fontSize: 'var(--font-sm)' }}
                 >
                   {s.label}
@@ -264,10 +298,10 @@ export default function Analytics() {
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => setClientSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
+                style={{ fontSize: 'var(--font-sm)', fontWeight: 700, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
                 aria-label="Cambiar dirección de orden"
               >
-                {clientSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+                {clientSortDir === 'desc' ? '↓ Mayor primero' : '↑ Menor primero'}
               </button>
             </div>
           )}
@@ -275,7 +309,7 @@ export default function Analytics() {
       </div>
     )
     return () => setHeaderContent(null)
-  }, [analytics, tab, filterPreset, customStart, customEnd, overproduction, searchDish, dishSort, dishSortDir, searchClient, clientSort, clientSortDir])
+  }, [analytics, tab, filterPreset, customStart, customEnd, overproduction, searchDish, dishSort, dishSortDir, searchClient, clientSort, clientSortDir, appliedRange])
 
   const loadAll = useCallback(async (preset, start, end) => {
     const id = ++loadIdRef.current
@@ -290,6 +324,7 @@ export default function Analytics() {
         window.piu?.getOverproductionInRange(startDate, endDate) || Promise.resolve(null)
       ])
       if (id !== loadIdRef.current) return
+      setAppliedRange({ startDate, endDate })
       setAnalytics(a)
       setTrends(t || { weekly: [], monthly: [], quarterly: [], yearly: [] })
       setOverproduction(ov || null)
@@ -300,7 +335,9 @@ export default function Analytics() {
     }
   }, [])
 
-  useEffect(() => { loadAll(filterPreset, customStart, customEnd) }, [loadAll, filterPreset])
+  useEffect(() => {
+    if (filterPreset !== 'custom') loadAll(filterPreset)
+  }, [loadAll, filterPreset])
 
   useEffect(() => {
     (async () => {
@@ -314,8 +351,13 @@ export default function Analytics() {
   }, [])
 
   useEffect(() => { setTablePage(0) }, [trendPeriod])
-  useEffect(() => { setDishPage(0) }, [dishSort, searchDish])
-  useEffect(() => { setClientPage(0) }, [clientSort, searchClient])
+  useEffect(() => { setDishPage(0) }, [dishSort, dishSortDir, searchDish, analytics])
+  useEffect(() => { setClientPage(0) }, [clientSort, clientSortDir, searchClient, analytics])
+  useEffect(() => {
+    setTrendPeriod(defaultTrendPeriod(filterPreset))
+    setExpandedDish(null)
+    setExpandedClient(null)
+  }, [filterPreset])
 
   const handleFilterChange = (preset) => {
     setFilterPreset(preset)
@@ -326,14 +368,22 @@ export default function Analytics() {
   }
 
   const handleCustomFilter = () => {
-    if (customStart && customEnd) {
-      loadAll('custom', customStart, customEnd)
+    if (!customStart || !customEnd) {
+      setError('Elegí la fecha de inicio y la de fin.')
+      return
     }
+    if (customStart > customEnd) {
+      setError('La fecha de inicio es posterior a la de fin.')
+      return
+    }
+    setExpandedDish(null)
+    setExpandedClient(null)
+    loadAll('custom', customStart, customEnd)
   }
 
   const handleExcelExport = async () => {
     try {
-      await window.piu?.exportAnalyticsExcel()
+      await window.piu?.exportAnalyticsExcel(appliedRange)
     } catch (e) {
       console.error('Excel export error:', e)
     }
@@ -353,7 +403,7 @@ export default function Analytics() {
         return (ft.monthly || []).map(m => {
           const [y, mo] = m.month.split('-').map(Number)
           const lastDay = new Date(y, mo, 0).getDate()
-          return { label: m.month, value: m.month, startDate: m.month + '-01', endDate: `${m.month}-${String(lastDay).padStart(2, '0')}` }
+          return { label: monthLabel(m.month), value: m.month, startDate: m.month + '-01', endDate: `${m.month}-${String(lastDay).padStart(2, '0')}` }
         })
       case 'quarter':
         return getQuarterOptions(ft)
@@ -378,7 +428,7 @@ export default function Analytics() {
         const sm = (q - 1) * 3 + 1
         const em = q * 3
         quarters[key] = {
-          label: key, value: key,
+          label: quarterLabel(key), value: key,
           startDate: `${y}-${String(sm).padStart(2, '0')}-01`,
           endDate: `${y}-${String(em).padStart(2, '0')}-${new Date(y, em, 0).getDate().toString().padStart(2, '0')}`
         }
@@ -397,11 +447,17 @@ export default function Analytics() {
       const p1e = compCustomP1End || null
       const p2s = compCustomP2Start || null
       const p2e = compCustomP2End || null
-      if (p1s && p2s) {
-        window.piu?.getPeriodComparison(p1s, p1e, p2s, p2e).then(r => {
-          if (id === compLoadIdRef.current) setComparison(r)
-        }).catch(() => { if (id === compLoadIdRef.current) setError('No se pudo generar la comparación.') })
+      if (!p1s || !p2s) {
+        if (p1Val === 'manual') setError('Elegí al menos la fecha de inicio de cada período.')
+        return
       }
+      if ((p1e && p1s > p1e) || (p2e && p2s > p2e)) {
+        setError('En algún período la fecha de inicio es posterior a la de fin.')
+        return
+      }
+      window.piu?.getPeriodComparison(p1s, p1e, p2s, p2e).then(r => {
+        if (id === compLoadIdRef.current) setComparison(r)
+      }).catch(() => { if (id === compLoadIdRef.current) setError('No se pudo generar la comparación.') })
     } else {
       const opts = getPeriodOptions(filterPreset, fullTrends)
       const opt1 = opts.find(o => o.value === p1Val)
@@ -449,30 +505,24 @@ export default function Analytics() {
 
       <div key={tab} style={{ animation: 'slideUp 250ms var(--ease-out-quart)' }}>
         {tab === 'top' && (() => {
-        const sortedDishes = analytics.topDishes
-          .filter(d => !searchDish || (d.name || '').toLowerCase().includes(searchDish.toLowerCase()))
-          .sort((a, b) => {
-            const dir = dishSortDir === 'asc' ? 1 : -1
-            if (dishSort === 'total') return (b.total - a.total) * dir
-            if (dishSort === 'totalProfit') return (b.totalProfit - a.totalProfit) * dir
-            if (dishSort === 'margin') {
-              const aM = a.price > 0 ? ((a.profit || 0) / a.price) : 0
-              const bM = b.price > 0 ? ((b.profit || 0) / b.price) : 0
-              return (bM - aM) * dir
-            }
-            if (dishSort === 'price') return (b.price - a.price) * dir
-            return 0
-          })
-
         const getDishVal = (d) => {
           if (dishSort === 'total') return d.total
           if (dishSort === 'totalProfit') return d.totalProfit
-          if (dishSort === 'margin') return (d.profit || 0)
+          if (dishSort === 'margin') return d.margin ?? 0
           return d.price
         }
 
-        const top10 = sortedDishes.slice(0, 10).map(d => ({ name: d.name, value: getDishVal(d) }))
-        const restVal = sortedDishes.slice(10).reduce((s, d) => s + getDishVal(d), 0)
+        const sortedDishes = analytics.topDishes
+          .filter(d => !searchDish || (d.name || '').toLowerCase().includes(searchDish.toLowerCase()))
+          .sort((a, b) => (getDishVal(b) - getDishVal(a)) * (dishSortDir === 'desc' ? 1 : -1))
+
+        const dishMaxVal = Math.max(...sortedDishes.map(d => getDishVal(d)), 0)
+        const dishTotalPages = Math.max(1, Math.ceil(sortedDishes.length / LIST_PAGE_SIZE))
+        const safeDishPage = Math.min(dishPage, dishTotalPages - 1)
+
+        const byUnits = [...sortedDishes].sort((a, b) => b.total - a.total)
+        const top10 = byUnits.slice(0, 10).map(d => ({ name: d.name, value: d.total }))
+        const restVal = byUnits.slice(10).reduce((s, d) => s + d.total, 0)
         if (restVal > 0) top10.push({ name: 'Otros', value: restVal })
         const dishPieData = top10.map((item, i) => ({
           ...item,
@@ -486,15 +536,15 @@ export default function Analytics() {
                 {analytics.topDishes.length === 0 ? (
                 <div className="empty-state card"><p>No hay platos con pedidos en este período. Probá cambiando el filtro de fecha.</p></div>
               ) : (
-                <div key={dishPage} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', animation: 'slideUp 250ms var(--ease-out-quart)' }}>
-                  {sortedDishes.slice(dishPage * LIST_PAGE_SIZE, (dishPage + 1) * LIST_PAGE_SIZE).map((d, i, arr) => {
-                    const globalIdx = dishPage * LIST_PAGE_SIZE + i
-                    const maxVal = arr.length > 0 ? Math.max(...arr.map(x => dishSort === 'total' ? x.total : dishSort === 'totalProfit' ? x.totalProfit : dishSort === 'margin' ? (x.profit || 0) : x.price)) : 1
-                    const barPct = Math.round(((dishSort === 'total' ? d.total : dishSort === 'totalProfit' ? d.totalProfit : dishSort === 'margin' ? (d.profit || 0) : d.price) / maxVal) * 100)
+                <div key={safeDishPage} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', animation: 'slideUp 250ms var(--ease-out-quart)' }}>
+                  {sortedDishes.slice(safeDishPage * LIST_PAGE_SIZE, (safeDishPage + 1) * LIST_PAGE_SIZE).map((d, i) => {
+                    const globalIdx = safeDishPage * LIST_PAGE_SIZE + i
+                    const barPct = dishMaxVal > 0 ? Math.max(0, Math.round(getDishVal(d) / dishMaxVal * 100)) : 0
                     const hasIngredients = d.cost > 0
                     const sumTimeSeries = (arr) => arr.reduce((a, i) => ({ ordered: a.ordered + (i.ordered || 0), produced: a.produced + (i.produced || 0), overproduction: a.overproduction + (i.overproduction || 0) }), { ordered: 0, produced: 0, overproduction: 0 })
                     const isExpanded = expandedDish === d.id
                     const runDishComparison = async (dishId, p1s, p1e, p2s, p2e) => {
+                      setDishLoading(true)
                       try {
                         const [prevData, currData] = await Promise.all([
                           window.piu?.getDishTimeSeries(dishId, p1s || null, p1e || null),
@@ -509,16 +559,24 @@ export default function Analytics() {
                         }
                       } catch (e) {
                         setError('No se pudieron cargar los datos del plato.')
+                      } finally {
+                        setDishLoading(false)
                       }
                     }
                     const loadTimeSeries = async () => {
                       if (isExpanded) { setExpandedDish(null); return }
                       setExpandedDish(d.id)
+                      setDishTimeSeries([])
+                      setDishComparison(prev => {
+                        const next = { ...prev }
+                        delete next[d.id]
+                        return next
+                      })
                       try {
                         if (filterPreset === 'custom' || filterPreset === 'all') {
-                          const startDate = customStart || null
-                          const endDate = customEnd || null
-                          const data = await window.piu?.getDishTimeSeries(d.id, startDate, endDate)
+                          const { startDate, endDate } = appliedRange
+                          setDishLoading(true)
+                          const data = await window.piu?.getDishTimeSeries(d.id, startDate, endDate).finally(() => setDishLoading(false))
                           setDishTimeSeries(data || [])
                           setDishCompDates(prev => ({ ...prev, [d.id]: { p1Start: '', p1End: '', p2Start: startDate || '', p2End: endDate || '' } }))
                         } else {
@@ -553,15 +611,16 @@ export default function Analytics() {
                               </div>
                             </div>
                             <div style={{ height: 'calc(var(--touch-size) * 0.25)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden', marginBottom: '2px' }}>
-                              <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--primary)', borderRadius: '100px', transition: 'width 0.5s ease', minWidth: '20px' }} />
+                              <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--primary)', borderRadius: '100px', transition: 'width 0.5s ease' }} />
                             </div>
                             <div style={{ display: 'flex', gap: 'var(--spacing-sm)', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                              <span>Precio: <strong>${d.price.toFixed(2)}</strong></span>
+                              <span title="Precio promedio cobrado en el período">Precio prom.: <strong>{fmtMoney(d.price, 2)}</strong></span>
                               {hasIngredients ? (
                                 <>
-                                  <span>Costo: <strong>${d.cost.toFixed(2)}</strong></span>
-                                  <span>Ganancia/ud: <strong style={{ color: d.profit > 0 ? 'var(--success)' : 'var(--danger)' }}>${d.profit.toFixed(2)}</strong></span>
-                                  <span>Ganancia total: <strong style={{ color: d.totalProfit > 0 ? 'var(--success)' : 'var(--danger)' }}>${d.totalProfit.toFixed(2)}</strong></span>
+                                  <span title="Costo promedio en el período">Costo prom.: <strong>{fmtMoney(d.cost, 2)}</strong></span>
+                                  <span>Ganancia/ud: <strong style={{ color: d.profit > 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtMoney(d.profit, 2)}</strong></span>
+                                  <span>Margen: <strong style={{ color: (d.margin ?? 0) > 0 ? 'var(--success)' : 'var(--danger)' }}>{pct(d.margin)}</strong></span>
+                                  <span>Ganancia total: <strong style={{ color: d.totalProfit > 0 ? 'var(--success)' : 'var(--danger)' }}>{fmtMoney(d.totalProfit)}</strong></span>
                                 </>
                               ) : (
                                 <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin ingredientes cargados</span>
@@ -640,6 +699,10 @@ export default function Analytics() {
                               })()}
                             </div>
 
+                            {dishLoading && (
+                              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: 'var(--spacing-sm)' }}>Cargando…</p>
+                            )}
+
                             {dishComparison[d.id] && (
                               <div style={{
                                 display: 'flex', gap: 'var(--spacing-md)',
@@ -675,23 +738,22 @@ export default function Analytics() {
                                   <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>Cambio</p>
                                   {(() => {
                                     const { prev, curr } = dishComparison[d.id]
-                                    const pc = (o, n) => o > 0 ? ((n - o) / o * 100).toFixed(1) : '—'
-                                    return (
-                                      <>
-                                        <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--primary)' }}>
-                                          {pc(prev.ordered, curr.ordered)}{pc(prev.ordered, curr.ordered) !== '—' ? '%' : ''}
+                                    const rows = [
+                                      { label: 'veces pedido', change: changeOf(prev.ordered, curr.ordered), upIsGood: true },
+                                      { label: 'producción', change: changeOf(prev.produced, curr.produced), upIsGood: true },
+                                      { label: 'sobra', change: changeOf(prev.overproduction, curr.overproduction), upIsGood: false }
+                                    ]
+                                    return rows.map(r => (
+                                      <React.Fragment key={r.label}>
+                                        <p style={{
+                                          fontSize: 'var(--font-lg)', fontWeight: 900,
+                                          color: r.change === null || r.change === 0 ? 'var(--text-secondary)' : (r.change > 0) === r.upIsGood ? 'var(--success)' : 'var(--danger)'
+                                        }}>
+                                          {pctChange(r.change)}
                                         </p>
-                                        <p style={{ fontSize: 'var(--font-xs)' }}>veces pedido</p>
-                                        <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>
-                                          {pc(prev.produced, curr.produced)}{pc(prev.produced, curr.produced) !== '—' ? '%' : ''}
-                                        </p>
-                                        <p style={{ fontSize: 'var(--font-xs)' }}>producción</p>
-                                        <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--danger)' }}>
-                                          {pc(prev.overproduction, curr.overproduction)}{pc(prev.overproduction, curr.overproduction) !== '—' ? '%' : ''}
-                                        </p>
-                                        <p style={{ fontSize: 'var(--font-xs)' }}>sobra</p>
-                                      </>
-                                    )
+                                        <p style={{ fontSize: 'var(--font-xs)' }}>{r.label}</p>
+                                      </React.Fragment>
+                                    ))
                                   })()}
                                 </div>
                               </div>
@@ -740,23 +802,21 @@ export default function Analytics() {
                 </div>
               )}
               {sortedDishes.length > LIST_PAGE_SIZE && (() => {
-                const dishTotalPages = Math.ceil(sortedDishes.length / LIST_PAGE_SIZE)
-                const safeDishPage = Math.min(dishPage, dishTotalPages - 1)
                 return (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-sm)', padding: '0 var(--spacing-xs)' }}>
                     <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
                       Mostrando {safeDishPage * LIST_PAGE_SIZE + 1}–{Math.min((safeDishPage + 1) * LIST_PAGE_SIZE, sortedDishes.length)} de {sortedDishes.length}
                     </span>
                     <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                      <button className="btn btn-ghost btn-sm" disabled={safeDishPage === 0} onClick={() => setDishPage(p => p - 1)}>Anterior</button>
-                      <button className="btn btn-ghost btn-sm" disabled={safeDishPage >= dishTotalPages - 1} onClick={() => setDishPage(p => p + 1)}>Siguiente</button>
+                      <button className="btn btn-ghost btn-sm" disabled={safeDishPage === 0} onClick={() => setDishPage(safeDishPage - 1)}>Anterior</button>
+                      <button className="btn btn-ghost btn-sm" disabled={safeDishPage >= dishTotalPages - 1} onClick={() => setDishPage(safeDishPage + 1)}>Siguiente</button>
                     </div>
                   </div>
                 )
               })()}
               </div>
               <div style={{ flex: '0 0 360px' }}>
-                {sortedDishes.length > 0 && <PieChart data={dishPieData} title="Distribución" size={260} />}
+                {sortedDishes.length > 0 && <PieChart data={dishPieData} title="Reparto de unidades vendidas" size={260} />}
               </div>
             </div>
           </>
@@ -764,24 +824,23 @@ export default function Analytics() {
       })()}
 
       {tab === 'clients' && (() => {
-        const sortedClients = analytics.topClients
-          .filter(c => !searchClient || `${c.name} ${c.last_name}`.toLowerCase().includes(searchClient.toLowerCase()))
-          .sort((a, b) => {
-            const dir = clientSortDir === 'asc' ? 1 : -1
-            if (clientSort === 'orders') return (b.order_count - a.order_count) * dir
-            if (clientSort === 'dishes') return (b.total_dishes - a.total_dishes) * dir
-            if (clientSort === 'revenue') return ((b.totalRevenue || 0) - (a.totalRevenue || 0)) * dir
-            return 0
-          })
-
         const getClientVal = (c) => {
           if (clientSort === 'orders') return c.order_count
           if (clientSort === 'dishes') return c.total_dishes
           return c.totalRevenue || 0
         }
 
-        const top10 = sortedClients.slice(0, 10).map(c => ({ name: `${c.name} ${c.last_name}`, value: getClientVal(c) }))
-        const restVal = sortedClients.slice(10).reduce((s, c) => s + getClientVal(c), 0)
+        const sortedClients = analytics.topClients
+          .filter(c => !searchClient || `${c.name} ${c.last_name}`.toLowerCase().includes(searchClient.toLowerCase()))
+          .sort((a, b) => (getClientVal(b) - getClientVal(a)) * (clientSortDir === 'desc' ? 1 : -1))
+
+        const clientMaxVal = Math.max(...sortedClients.map(c => getClientVal(c)), 0)
+        const clientTotalPages = Math.max(1, Math.ceil(sortedClients.length / LIST_PAGE_SIZE))
+        const safeClientPage = Math.min(clientPage, clientTotalPages - 1)
+
+        const byOrders = [...sortedClients].sort((a, b) => b.order_count - a.order_count)
+        const top10 = byOrders.slice(0, 10).map(c => ({ name: `${c.name} ${c.last_name}`, value: c.order_count }))
+        const restVal = byOrders.slice(10).reduce((s, c) => s + c.order_count, 0)
         if (restVal > 0) top10.push({ name: 'Otros', value: restVal })
         const clientPieData = top10.map((item, i) => ({
           ...item,
@@ -795,24 +854,25 @@ export default function Analytics() {
                 {analytics.topClients.length === 0 ? (
                 <div className="empty-state card"><p>No hay clientes con pedidos en este período. Probá cambiando el filtro de fecha.</p></div>
               ) : (
-                <div key={clientPage} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', animation: 'fadeIn 200ms ease-out' }}>
-                  {sortedClients.slice(clientPage * LIST_PAGE_SIZE, (clientPage + 1) * LIST_PAGE_SIZE).map((c, i, arr) => {
-                    const globalIdx = clientPage * LIST_PAGE_SIZE + i
-                    const maxVal = arr.length > 0 ? Math.max(...arr.map(x => clientSort === 'orders' ? x.order_count : clientSort === 'dishes' ? x.total_dishes : x.totalRevenue || 0)) : 1
-                    const barPct = maxVal > 0 ? Math.round(((clientSort === 'orders' ? c.order_count : clientSort === 'dishes' ? c.total_dishes : c.totalRevenue || 0) / maxVal) * 100) : 0
+                <div key={safeClientPage} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', animation: 'fadeIn 200ms ease-out' }}>
+                  {sortedClients.slice(safeClientPage * LIST_PAGE_SIZE, (safeClientPage + 1) * LIST_PAGE_SIZE).map((c, i) => {
+                    const globalIdx = safeClientPage * LIST_PAGE_SIZE + i
+                    const barPct = clientMaxVal > 0 ? Math.max(0, Math.round(getClientVal(c) / clientMaxVal * 100)) : 0
                     const cKey = `${c.clientId}`
                     const isExpanded = expandedClient === cKey
                     const loadTimeSeries = async () => {
                       if (isExpanded) { setExpandedClient(null); return }
                       setExpandedClient(cKey)
+                      setClientTimeSeries([])
+                      setClientLoading(true)
                       try {
-                        const { startDate, endDate } = filterPreset === 'custom'
-                          ? { startDate: customStart || null, endDate: customEnd || null }
-                          : getPresetRange(filterPreset)
+                        const { startDate, endDate } = appliedRange
                         const data = await window.piu?.getClientTimeSeries(c.clientId, startDate, endDate)
                         setClientTimeSeries(data || [])
                       } catch (e) {
                         setError('No se pudieron cargar los datos del cliente.')
+                      } finally {
+                        setClientLoading(false)
                       }
                     }
                     return (
@@ -832,7 +892,7 @@ export default function Analytics() {
                               </span>
                             </div>
                             <div style={{ height: 'calc(var(--touch-size) * 0.25)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden' }}>
-                              <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--accent)', borderRadius: '100px', transition: 'width 0.5s ease', minWidth: '20px' }} />
+                              <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--accent)', borderRadius: '100px', transition: 'width 0.5s ease' }} />
                             </div>
                             <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginTop: '2px', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
                               <span>{c.order_count} pedidos</span>
@@ -848,7 +908,10 @@ export default function Analytics() {
                           overflow: 'hidden',
                           transition: 'max-height 500ms ease-out, opacity 300ms ease-out'
                         }}>
-                          {isExpanded && clientTimeSeries.length > 0 && (
+                          {isExpanded && clientLoading && (
+                            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: 'var(--spacing-sm)' }}>Cargando…</p>
+                          )}
+                          {isExpanded && !clientLoading && clientTimeSeries.length > 0 && (
                           filterPreset === 'week' ? (
                             <div style={{
                               padding: 'var(--spacing-sm) var(--spacing-md)',
@@ -894,23 +957,21 @@ export default function Analytics() {
                 </div>
               )}
               {sortedClients.length > LIST_PAGE_SIZE && (() => {
-                const clientTotalPages = Math.ceil(sortedClients.length / LIST_PAGE_SIZE)
-                const safeClientPage = Math.min(clientPage, clientTotalPages - 1)
                 return (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-sm)', padding: '0 var(--spacing-xs)' }}>
                     <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
                       Mostrando {safeClientPage * LIST_PAGE_SIZE + 1}–{Math.min((safeClientPage + 1) * LIST_PAGE_SIZE, sortedClients.length)} de {sortedClients.length}
                     </span>
                     <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                      <button className="btn btn-ghost btn-sm" disabled={safeClientPage === 0} onClick={() => setClientPage(p => p - 1)}>Anterior</button>
-                      <button className="btn btn-ghost btn-sm" disabled={safeClientPage >= clientTotalPages - 1} onClick={() => setClientPage(p => p + 1)}>Siguiente</button>
+                      <button className="btn btn-ghost btn-sm" disabled={safeClientPage === 0} onClick={() => setClientPage(safeClientPage - 1)}>Anterior</button>
+                      <button className="btn btn-ghost btn-sm" disabled={safeClientPage >= clientTotalPages - 1} onClick={() => setClientPage(safeClientPage + 1)}>Siguiente</button>
                     </div>
                   </div>
                 )
               })()}
               </div>
               <div style={{ flex: '0 0 360px' }}>
-                {sortedClients.length > 0 && <PieChart data={clientPieData} title="Distribución" size={260} />}
+                {sortedClients.length > 0 && <PieChart data={clientPieData} title="Reparto de pedidos" size={260} />}
               </div>
             </div>
           </>
@@ -920,11 +981,7 @@ export default function Analytics() {
       {tab === 'trend' && (
         <div>
           <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-md)' }}>
-            {[
-              { id: 'monthly', label: 'Mensual' },
-              { id: 'quarterly', label: 'Trimestral' },
-              { id: 'yearly', label: 'Anual' }
-            ].map(p => (
+            {TREND_PERIODS.map(p => (
               <button
                 key={p.id}
                 className={trendPeriod === p.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
@@ -936,15 +993,16 @@ export default function Analytics() {
           </div>
 
           {(() => {
-            const data = trendPeriod === 'monthly' ? trends.monthly
-              : trendPeriod === 'quarterly' ? trends.quarterly
-              : trends.yearly
-            const labelKey = trendPeriod === 'monthly' ? 'month'
-              : trendPeriod === 'quarterly' ? 'quarter'
-              : 'year'
-            const fmtLabel = trendPeriod === 'monthly' ? (m) => `${m.slice(5)}/${m.slice(2, 4)}`
-              : trendPeriod === 'quarterly' ? (q) => q
+            const periodDef = TREND_PERIODS.find(p => p.id === trendPeriod) || TREND_PERIODS[1]
+            const data = trends[periodDef.id] || []
+            const labelKey = periodDef.key
+            const fmtLabel = periodDef.id === 'weekly' ? shortDate
+              : periodDef.id === 'monthly' ? monthShortLabel
+              : periodDef.id === 'quarterly' ? quarterLabel
               : (y) => y
+            const fmtRowLabel = periodDef.id === 'weekly' ? (w) => `Semana del ${formatDate(w)}`
+              : periodDef.id === 'monthly' ? monthLabel
+              : fmtLabel
 
             if (data.length === 0) return <div className="empty-state card"><p>No hay tendencias para este período. Probá con un rango de fechas más amplio.</p></div>
 
@@ -972,12 +1030,12 @@ export default function Analytics() {
                   </div>
                   <div style={{ flex: '1 1 35%', minWidth: '300px', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
                     <div className="card" style={{ flex: 1, padding: 'var(--spacing-md)', display: 'flex', flexDirection: 'column' }}>
-                      <h4 style={{ marginBottom: 'var(--spacing-sm)' }}>Pedidos por semana</h4>
+                      <h4 style={{ marginBottom: 'var(--spacing-sm)' }}>Pedidos por {periodDef.unit}</h4>
                       <div style={{ flex: 1 }}><BarChart data={data} labelKey={labelKey} valueKey="order_count" barColor="var(--accent)" formatLabel={fmtLabel} /></div>
                     </div>
                     {analytics.dayOfWeek && analytics.dayOfWeek.some(d => d.count > 0) && (
                       <div className="card" style={{ flex: 1, padding: 'var(--spacing-md)', display: 'flex', flexDirection: 'column' }}>
-                        <h4 style={{ marginBottom: 'var(--spacing-sm)' }}>Pedidos por día</h4>
+                        <h4 style={{ marginBottom: 'var(--spacing-sm)' }}>Pedidos por día de la semana</h4>
                         <div style={{ flex: 1 }}><BarChart
                           data={analytics.dayOfWeek}
                           labelKey="name"
@@ -1005,11 +1063,11 @@ export default function Analytics() {
                     <tbody>
                       {pageData.map((row) => {
                         const label = row[labelKey]
-                        const margin = row.revenue > 0 ? (row.profit / row.revenue * 100) : 0
+                        const margin = row.revenue > 0 ? (row.profit / row.revenue * 100) : null
                         return (
                           <tr key={label} style={{ borderBottom: '1px solid var(--border)' }}>
                             <td style={{ padding: 'var(--spacing-sm) var(--spacing-md)', fontWeight: 600 }}>
-                              {typeof fmtLabel === 'function' ? fmtLabel(label) : label}
+                              {fmtRowLabel(label)}
                             </td>
                             <td style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right', color: 'var(--success)' }}>
                               {fmtMoney(row.revenue)}
@@ -1028,9 +1086,9 @@ export default function Analytics() {
                             <td style={{
                               padding: 'var(--spacing-sm) var(--spacing-md)',
                               textAlign: 'right',
-                              color: margin >= 30 ? 'var(--success)' : margin >= 10 ? 'var(--accent)' : 'var(--danger)'
+                              color: margin === null ? 'var(--text-secondary)' : margin >= 30 ? 'var(--success)' : margin >= 10 ? 'var(--accent)' : 'var(--danger)'
                             }}>
-                              {margin.toFixed(1)}%
+                              {pct(margin)}
                             </td>
                             <td style={{ padding: 'var(--spacing-sm) var(--spacing-md)', textAlign: 'right' }}>
                               {row.order_count}
@@ -1076,7 +1134,7 @@ export default function Analytics() {
                 <span style={{ fontSize: 'var(--font-xs)' }}>—</span>
                 <input type="date" value={compCustomP2End} onChange={e => setCompCustomP2End(e.target.value)} style={{ width: 130, fontSize: 'var(--font-sm)' }} />
               </div>
-              <button className="btn btn-primary btn-sm" onClick={() => runComparison()}>Comparar</button>
+              <button className="btn btn-primary btn-sm" onClick={() => runComparison('manual')}>Comparar</button>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -1113,14 +1171,17 @@ export default function Analytics() {
             const marginData = [
               { label: 'Margen %', p1: comparison.period1.margin, p2: comparison.period2.margin },
             ]
-            const p1AvgCost = comparison.period1.orders > 0 ? comparison.period1.cost / comparison.period1.orders : 0
-            const p2AvgCost = comparison.period2.orders > 0 ? comparison.period2.cost / comparison.period2.orders : 0
-            const inflation = p1AvgCost > 0 ? ((p2AvgCost - p1AvgCost) / p1AvgCost * 100) : 0
+            const avg = (p, key) => p.orders > 0 ? p[key] / p.orders : null
+            const perOrder = [
+              { label: 'Ticket promedio', hint: 'Ingresos por pedido', p1: avg(comparison.period1, 'revenue'), p2: avg(comparison.period2, 'revenue'), upIsGood: true },
+              { label: 'Costo promedio por pedido', hint: 'Sube si los pedidos traen más platos o si aumentaron los ingredientes', p1: avg(comparison.period1, 'cost'), p2: avg(comparison.period2, 'cost'), upIsGood: false }
+            ]
             const compOpts = getPeriodOptions(filterPreset, fullTrends)
             const p1Opt = compOpts.find(o => o.value === compP1Value)
             const p2Opt = compOpts.find(o => o.value === compP2Value)
-            const p1Label = filterPreset === 'custom' || filterPreset === 'all' ? 'Período 1' : (p1Opt?.label || 'Período A')
-            const p2Label = filterPreset === 'custom' || filterPreset === 'all' ? 'Período 2' : (p2Opt?.label || 'Período B')
+            const isCustomComp = filterPreset === 'custom' || filterPreset === 'all'
+            const p1Label = isCustomComp ? rangeLabel(compCustomP1Start, compCustomP1End) : (p1Opt?.label || 'Período A')
+            const p2Label = isCustomComp ? rangeLabel(compCustomP2Start, compCustomP2End) : (p2Opt?.label || 'Período B')
             return (
               <>
                 <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)', flexWrap: 'wrap' }}>
@@ -1128,17 +1189,17 @@ export default function Analytics() {
                     <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>{p1Label}</p>
                     <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900 }}>{comparison.period1.orders}</p>
                     <p>pedidos</p>
-                    <p style={{ color: 'var(--success)' }}>{fmtMoney(comparison.period1.revenue)}</p>
-                    <p style={{ color: 'var(--danger)' }}>{fmtMoney(comparison.period1.cost)}</p>
-                    <p style={{ color: 'var(--primary)', fontWeight: 700 }}>{fmtMoney(comparison.period1.profit)}</p>
+                    <p>Ingresos: <strong style={{ color: 'var(--success)' }}>{fmtMoney(comparison.period1.revenue)}</strong></p>
+                    <p>Costos: <strong style={{ color: 'var(--danger)' }}>{fmtMoney(comparison.period1.cost)}</strong></p>
+                    <p>Ganancia: <strong style={{ color: comparison.period1.profit >= 0 ? 'var(--primary)' : 'var(--danger)' }}>{fmtMoney(comparison.period1.profit)}</strong></p>
                   </div>
                   <div className="card" style={{ flex: '1 1 250px', textAlign: 'center' }}>
                     <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>{p2Label}</p>
                     <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900 }}>{comparison.period2.orders}</p>
                     <p>pedidos</p>
-                    <p style={{ color: 'var(--success)' }}>{fmtMoney(comparison.period2.revenue)}</p>
-                    <p style={{ color: 'var(--danger)' }}>{fmtMoney(comparison.period2.cost)}</p>
-                    <p style={{ color: 'var(--primary)', fontWeight: 700 }}>{fmtMoney(comparison.period2.profit)}</p>
+                    <p>Ingresos: <strong style={{ color: 'var(--success)' }}>{fmtMoney(comparison.period2.revenue)}</strong></p>
+                    <p>Costos: <strong style={{ color: 'var(--danger)' }}>{fmtMoney(comparison.period2.cost)}</strong></p>
+                    <p>Ganancia: <strong style={{ color: comparison.period2.profit >= 0 ? 'var(--primary)' : 'var(--danger)' }}>{fmtMoney(comparison.period2.profit)}</strong></p>
                   </div>
                 </div>
 
@@ -1154,12 +1215,7 @@ export default function Analytics() {
                             { key: 'p1', label: p1Label, color: 'var(--primary)' },
                             { key: 'p2', label: p2Label, color: 'var(--accent)' }
                           ]}
-                          formatValue={(v) => {
-                            if (typeof v === 'number') {
-                              return `$${Math.round(v).toLocaleString('es-AR')}`
-                            }
-                            return v
-                          }}
+                          formatValue={(v) => typeof v === 'number' ? fmtMoney(v) : v}
                           scrollable={false}
                         />
                       </div>
@@ -1174,27 +1230,26 @@ export default function Analytics() {
                             { key: 'p1', label: p1Label, color: 'var(--primary)' },
                             { key: 'p2', label: p2Label, color: 'var(--accent)' }
                           ]}
-                          formatValue={(v) => typeof v === 'number' ? `${v.toFixed(1)}%` : v}
+                          formatValue={(v) => typeof v === 'number' ? pct(v) : v}
                           scrollable={false}
                         />
                       </div>
                     </div>
-                    <div style={{ flex: '1 1 180px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--spacing-sm)' }}>
-                      <h4 style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Tasa de inflación</h4>
-                      <p style={{ fontSize: 'var(--font-xl)', fontWeight: 900, color: inflation > 0 ? 'var(--danger)' : inflation < 0 ? 'var(--success)' : 'var(--text)' }}>
-                        {inflation > 0 ? '+' : ''}{inflation.toFixed(1)}%
-                      </p>
-                      <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>costo promedio / pedido</p>
-                      <div style={{ display: 'flex', gap: 'var(--spacing-lg)', marginTop: 'var(--spacing-xs)' }}>
-                        <div>
-                          <p style={{ fontSize: 'var(--font-sm)', fontWeight: 700, color: 'var(--primary)' }}>{fmtMoney(p1AvgCost)}</p>
-                          <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{p1Label}</p>
-                        </div>
-                        <div>
-                          <p style={{ fontSize: 'var(--font-sm)', fontWeight: 700, color: 'var(--accent)' }}>{fmtMoney(p2AvgCost)}</p>
-                          <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{p2Label}</p>
-                        </div>
-                      </div>
+                    <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 'var(--spacing-md)' }}>
+                      {perOrder.map(m => {
+                        const ch = m.p1 !== null && m.p2 !== null ? changeOf(m.p1, m.p2) : null
+                        return (
+                          <div key={m.label} title={m.hint} style={{ textAlign: 'center' }}>
+                            <h4 style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>{m.label}</h4>
+                            <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: ch === null || ch === 0 ? 'var(--text)' : (ch > 0) === m.upIsGood ? 'var(--success)' : 'var(--danger)' }}>
+                              {pctChange(ch)}
+                            </p>
+                            <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
+                              {fmtMoney(m.p1)} → {fmtMoney(m.p2)}
+                            </p>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1215,12 +1270,13 @@ export default function Analytics() {
                         { key: 'revenue', label: 'Ingresos', fmt: fmtMoney },
                         { key: 'cost', label: 'Costos', fmt: fmtMoney },
                         { key: 'profit', label: 'Ganancia', fmt: fmtMoney },
-                        { key: 'margin', label: 'Margen %', fmt: (v) => `${(v || 0).toFixed(1)}%` }
+                        { key: 'margin', label: 'Margen %', fmt: (v) => pct(v), unit: 'pp' }
                       ].map(row => {
                         const p1 = comparison.period1?.[row.key]
                         const p2 = comparison.period2?.[row.key]
                         const change = comparison.changes?.[row.key]
                         const isPositive = row.key === 'cost' ? (change < 0) : (change > 0)
+                        const isNew = (change === null || change === undefined) && !p1 && p2 > 0
                         return (
                           <tr key={row.key} style={{ borderBottom: '1px solid var(--border)' }}>
                             <td style={{ padding: 'var(--spacing-sm) var(--spacing-md)', fontWeight: 600 }}>{row.label}</td>
@@ -1230,9 +1286,9 @@ export default function Analytics() {
                               padding: 'var(--spacing-sm) var(--spacing-md)',
                               textAlign: 'right',
                               fontWeight: 700,
-                              color: change === 0 ? 'var(--text-secondary)' : isPositive ? 'var(--success)' : 'var(--danger)'
+                              color: change === null || change === undefined || change === 0 ? 'var(--text-secondary)' : isPositive ? 'var(--success)' : 'var(--danger)'
                             }}>
-                              {change !== undefined && change !== null ? (change > 0 ? '↑ ' : change < 0 ? '↓ ' : '') + pctChange(change) : '—'}
+                              {isNew ? 'nuevo' : change !== undefined && change !== null ? (change > 0 ? '↑ ' : change < 0 ? '↓ ' : '') + pctChange(change, row.unit) : '—'}
                             </td>
                           </tr>
                         )

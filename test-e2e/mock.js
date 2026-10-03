@@ -48,9 +48,9 @@
 
   const CLIENTS = [
     { id: 1, name: 'Juan', last_name: 'Perez', phone: '11 5555 0101', address: 'Av. Siempre Viva 123', notes: '' },
-    { id: 2, name: 'Maria', last_name: 'Garcia', phone: '11 5555 0202', address: 'Calle Falsa 456', notes: 'Toca timbre 3 veces' },
+    { id: 2, name: 'Maria', last_name: 'Garcia', phone: '11 5555 0202', address: 'Calle Falsa 456', locality: 'Buenos Aires', notes: 'Toca timbre 3 veces' },
     { id: 3, name: 'Pedro', last_name: 'Lopez', phone: '', address: '', notes: '' },
-    { id: 4, name: 'Ana', last_name: 'Martinez', phone: '11 5555 0303', address: 'Belgrano 789', notes: '' },
+    { id: 4, name: 'Ana', last_name: 'Martinez', phone: '11 5555 0303', address: 'Belgrano 789', locality: 'Quilmes', notes: '' },
     { id: 5, name: 'Carlos', last_name: 'Rodriguez', phone: '11 5555 0404', address: 'San Martin 321', notes: 'Sin cebolla' },
     { id: 6, name: 'Lucia', last_name: 'Fernandez', phone: '11 5555 0505', address: 'Rivadavia 654', notes: '' },
     { id: 7, name: 'Sofia', last_name: 'Gonzalez', phone: '', address: '', notes: '' },
@@ -61,9 +61,9 @@
 
   const ORDERS = [
     { id: 1, week_id: 1, client_id: 1, status: 'delivered', notes: '', has_delivery: false, delivery_fee: 0, created_at: '2026-07-13T10:00:00', items: [{ dishId: 1, quantity: 2, unit_price: 1800, unit_cost: 500 }, { dishId: 8, quantity: 1, unit_price: 400, unit_cost: 80 }] },
-    { id: 2, week_id: 1, client_id: 2, status: 'delivered', notes: 'Sin sal', has_delivery: true, delivery_fee: 300, created_at: '2026-07-13T12:00:00', items: [{ dishId: 2, quantity: 1, unit_price: 1500, unit_cost: 350 }, { dishId: 10, quantity: 2, unit_price: 300, unit_cost: 60 }] },
+    { id: 2, week_id: 1, client_id: 2, status: 'delivered', notes: 'Sin sal', has_delivery: true, delivery_fee: 300, delivery_day: 'viernes', created_at: '2026-07-13T12:00:00', items: [{ dishId: 2, quantity: 1, unit_price: 1500, unit_cost: 350 }, { dishId: 10, quantity: 2, unit_price: 300, unit_cost: 60 }] },
     { id: 3, week_id: 1, client_id: 3, status: 'assembled', notes: '', has_delivery: false, delivery_fee: 0, created_at: '2026-07-14T09:00:00', items: [{ dishId: 3, quantity: 1, unit_price: 1700, unit_cost: 380 }] },
-    { id: 4, week_id: 2, client_id: 4, status: 'confirmed', notes: 'Llamar antes', has_delivery: true, delivery_fee: 500, created_at: '2026-07-20T11:00:00', items: [{ dishId: 4, quantity: 2, unit_price: 1600, unit_cost: 320 }, { dishId: 9, quantity: 1, unit_price: 350, unit_cost: 50 }, { dishId: 10, quantity: 3, unit_price: 300, unit_cost: 60 }] },
+    { id: 4, week_id: 2, client_id: 4, status: 'confirmed', notes: 'Llamar antes', has_delivery: true, delivery_fee: 500, delivery_day: 'sabado', created_at: '2026-07-20T11:00:00', items: [{ dishId: 4, quantity: 2, unit_price: 1600, unit_cost: 320 }, { dishId: 9, quantity: 1, unit_price: 350, unit_cost: 50 }, { dishId: 10, quantity: 3, unit_price: 300, unit_cost: 60 }] },
     { id: 5, week_id: 2, client_id: 1, status: 'pending', notes: '', has_delivery: false, delivery_fee: 0, created_at: '2026-07-20T15:00:00', items: [{ dishId: 5, quantity: 3, unit_price: 1300, unit_cost: 300 }] },
     { id: 6, week_id: 2, client_id: 5, status: 'pending', notes: 'Sin cebolla', has_delivery: false, delivery_fee: 0, created_at: '2026-07-21T08:00:00', items: [{ dishId: 6, quantity: 1, unit_price: 1500, unit_cost: 350 }, { dishId: 7, quantity: 1, unit_price: 1700, unit_cost: 400 }] },
   ]
@@ -87,8 +87,9 @@
     orders: ORDERS,
     orderItems: ORDERS.flatMap(o => o.items.map(item => ({ ...item, order_id: o.id }))),
     production: PRODUCTION,
-    _nextId: nextOrderId,
+    _nextId: 1000,
     deliveryFee: 500,
+    deliverySettings: { defaultFee: 500 },
   }
 
   const statusOrder = ['pending', 'confirmed', 'assembled', 'delivered']
@@ -97,6 +98,36 @@
 
   function getWeekOrders(weekId) {
     return DATA.orders.filter(o => o.week_id === weekId)
+  }
+
+  function enrichMockOrder(o) {
+    const client = DATA.clients.find(c => c.id === o.client_id)
+    const items = (o.items || []).map(item => {
+      const dish = DATA.dishes.find(d => d.id === item.dishId)
+      const quantity = item.quantity || 0
+      const unitPrice = item.unit_price ?? (dish ? dish.price : 0)
+      return {
+        ...item,
+        dish_id: item.dishId,
+        dish_name: dish ? dish.name : '?',
+        subtotal: unitPrice * quantity
+      }
+    })
+    const itemsTotal = items.reduce((s, i) => s + i.subtotal, 0)
+    const deliveryFee = o.delivery_fee || 0
+    return {
+      ...o,
+      has_delivery: !!o.has_delivery,
+      delivery_fee: deliveryFee,
+      delivery_day: o.delivery_day || null,
+      client_name: client ? `${client.name} ${client.last_name}`.trim() : '—',
+      client_phone: client?.phone || '',
+      client_address: client?.address || '',
+      client_locality: client?.locality || '',
+      items,
+      items_total: itemsTotal,
+      total: o.has_delivery ? itemsTotal + deliveryFee : itemsTotal
+    }
   }
 
   function getWeekProduction(weekId) {
@@ -120,7 +151,7 @@
         const produced = weekProduction.filter(p => p.dish_id === d.id).reduce((s, p) => s + p.quantity_produced, 0)
         const ordered = weekOrders.flatMap(o => o.items).filter(i => i.dishId === d.id).reduce((s, i) => s + i.quantity, 0)
         const completed = produced >= ordered && ordered > 0
-        return { ...d, total_ordered: ordered, total_produced: produced, completed }
+        return { ...d, total_ordered: ordered, total_produced: produced, overproduction: Math.max(0, produced - ordered), completed }
       })
       return Promise.resolve({
         week,
@@ -128,6 +159,7 @@
         totals: {
           total: dishes.filter(d => d.total_ordered > 0).reduce((s, d) => s + d.total_ordered, 0),
           produced: dishes.reduce((s, d) => s + d.total_produced, 0),
+          overproduction: dishes.reduce((s, d) => s + d.overproduction, 0),
         }
       })
     },
@@ -164,10 +196,11 @@
       const subs = DATA.ingredients.filter(i => i.subIngredients && i.subIngredients.length > 0)
       return Promise.resolve(subs.map(s => ({
         id: s.id, name: s.name, unit: s.unit,
-        total: Math.round(Math.random() * 5 + 1),
+        total: 4,
+        remaining: 2,
         breakdown: s.subIngredients.map(si => {
           const ing = DATA.ingredients.find(i => i.id === si.ingredientId)
-          return { name: ing ? ing.name : '?', quantity: si.quantity, unit: si.displayUnit }
+          return { name: ing ? ing.name : '?', total: si.quantity * 4, remaining: si.quantity * 2, unit: ing ? ing.unit : si.displayUnit }
         })
       })))
     },
@@ -198,7 +231,13 @@
       return Promise.resolve({ success: true })
     },
 
-    getClients() { return Promise.resolve([...DATA.clients]) },
+    getClients() {
+      return Promise.resolve(DATA.clients.map(c => {
+        const orders = DATA.orders.filter(o => o.client_id === c.id)
+        const last = orders.map(o => o.created_at).sort().pop() || null
+        return { ...c, order_count: orders.length, last_order_at: last }
+      }))
+    },
 
     createClient(data) {
       const id = genId()
@@ -238,6 +277,13 @@
     deleteIngredient(id) {
       DATA.ingredients = DATA.ingredients.filter(i => i.id !== id)
       return Promise.resolve({ success: true })
+    },
+
+    getIngredientUsage(id) {
+      return Promise.resolve({
+        dishes: DATA.dishes.filter(d => (d.ingredients || []).some(i => i.ingredientId === id)).map(d => d.name),
+        subProducts: DATA.ingredients.filter(i => i.id !== id && (i.subIngredients || []).some(si => si.ingredientId === id)).map(i => i.name)
+      })
     },
 
     getIngredientsList() {
@@ -281,19 +327,17 @@
     },
 
     getOrders() {
-      return Promise.resolve(getWeekOrders(currentWeekId).map(o => ({
-        ...o,
-        client_name: (DATA.clients.find(c => c.id === o.client_id)?.name || '') + ' ' + (DATA.clients.find(c => c.id === o.client_id)?.last_name || '')
-      })))
+      return Promise.resolve(getWeekOrders(currentWeekId).map(enrichMockOrder))
     },
 
     createOrder(data) {
       const id = genId()
       const order = {
-        id, week_id: currentWeekId, status: 'pending',
+        id, week_id: data.weekId || currentWeekId, status: 'pending',
         client_id: data.clientId, notes: data.notes || '',
         has_delivery: data.has_delivery || false,
         delivery_fee: data.delivery_fee || 0,
+        delivery_day: data.has_delivery ? (data.delivery_day || 'viernes') : null,
         created_at: new Date().toISOString(),
         items: data.items.map(item => {
           const dish = DATA.dishes.find(d => d.id === item.dishId)
@@ -316,6 +360,7 @@
           ...DATA.orders[idx],
           client_id: data.clientId, notes: data.notes,
           has_delivery: data.has_delivery, delivery_fee: data.delivery_fee,
+          delivery_day: data.has_delivery ? (data.delivery_day || 'viernes') : null,
           items: data.items.map(item => {
             const dish = DATA.dishes.find(d => d.id === item.dishId)
             return {
@@ -347,6 +392,7 @@
         client_name: client ? `${client.name} ${client.last_name}` : '',
         client_phone: client ? client.phone : '',
         client_address: client ? client.address : '',
+        client_locality: client ? client.locality || '' : '',
         items: order.items.map(item => {
           const dish = DATA.dishes.find(d => d.id === item.dishId)
           return { ...item, dish_name: dish ? dish.name : '?' }
@@ -355,10 +401,21 @@
     },
 
     getOrdersByWeekId(weekId) {
-      return Promise.resolve(DATA.orders.filter(o => o.week_id === weekId).map(o => ({
-        ...o,
-        client_name: (DATA.clients.find(c => c.id === o.client_id)?.name || '') + ' ' + (DATA.clients.find(c => c.id === o.client_id)?.last_name || '')
-      })))
+      return Promise.resolve(DATA.orders.filter(o => o.week_id === weekId).map(o => {
+        const client = DATA.clients.find(c => c.id === o.client_id)
+        return { ...client, ...enrichMockOrder(o) }
+      }))
+    },
+
+    getClientOrderHistory(clientId) {
+      return Promise.resolve(DATA.orders.filter(o => o.client_id === clientId).map(o => {
+        const client = DATA.clients.find(c => c.id === o.client_id)
+        return { ...client, ...enrichMockOrder(o) }
+      }).sort((a, b) => {
+        const d = new Date(b.created_at) - new Date(a.created_at)
+        if (d !== 0) return d
+        return b.id - a.id
+      }))
     },
 
     markOrderAssembled(id) {
@@ -387,8 +444,13 @@
       return Promise.resolve({ success: true })
     },
 
-    clientHasOrderThisWeek(clientId) {
-      return Promise.resolve(DATA.orders.some(o => o.week_id === currentWeekId && o.client_id === clientId))
+    clientHasOrderThisWeek(clientId, weekId) {
+      const wid = weekId ?? currentWeekId
+      return Promise.resolve(DATA.orders.some(o => o.week_id === wid && o.client_id === clientId))
+    },
+
+    getOrCreateNextWeek() {
+      return Promise.resolve(WEEKS.find(w => w.id === 3))
     },
 
     getWeekOrderCounts() {
@@ -411,6 +473,12 @@
 
     getDefaultDeliveryFee() { return Promise.resolve(DATA.deliveryFee || 500) },
     setDefaultDeliveryFee(fee) { DATA.deliveryFee = fee; return Promise.resolve({ success: true }) },
+    getStartLocation() { return Promise.resolve(DATA.deliverySettings.startLocation || null) },
+    setStartLocation(loc) {
+      if (loc === null) delete DATA.deliverySettings.startLocation
+      else DATA.deliverySettings.startLocation = { ...loc }
+      return Promise.resolve({ success: true })
+    },
 
     getAnalytics() { return this.getAnalyticsFiltered(null, null) },
 
@@ -423,16 +491,20 @@
       const totalItems = filteredOrders.flatMap(o => o.items)
       const revenue = totalItems.reduce((s, i) => s + (i.unit_price || 0) * i.quantity, 0)
       const totalCost = totalItems.reduce((s, i) => s + (i.unit_cost || 0) * i.quantity, 0)
-      const deliveryTotal = filteredOrders.filter(o => o.has_delivery).reduce((s, o) => s + (o.delivery_fee || 0), 0)
-
       const dishMap = {}
       totalItems.forEach(item => {
         if (!dishMap[item.dishId]) {
           const dish = DATA.dishes.find(d => d.id === item.dishId)
-          dishMap[item.dishId] = { id: item.dishId, name: dish ? dish.name : '?', price: item.unit_price, cost: item.unit_cost, total: 0, totalProfit: 0, profit: item.unit_price - item.unit_cost }
+          dishMap[item.dishId] = { id: item.dishId, name: dish ? dish.name : '?', total: 0, totalRevenue: 0, totalCost: 0 }
         }
         dishMap[item.dishId].total += item.quantity
-        dishMap[item.dishId].totalProfit += (item.unit_price - item.unit_cost) * item.quantity
+        dishMap[item.dishId].totalRevenue += (item.unit_price || 0) * item.quantity
+        dishMap[item.dishId].totalCost += (item.unit_cost || 0) * item.quantity
+      })
+      const topDishes = Object.values(dishMap).map(d => {
+        const price = d.total > 0 ? d.totalRevenue / d.total : 0
+        const cost = d.total > 0 ? d.totalCost / d.total : 0
+        return { ...d, price, cost, profit: price - cost, margin: price > 0 ? (price - cost) / price * 100 : null, totalProfit: d.totalRevenue - d.totalCost }
       })
 
       const clientMap = {}
@@ -456,10 +528,10 @@
 
       return Promise.resolve({
         totalOrders,
-        revenue: revenue + deliveryTotal,
+        revenue,
         totalCost,
-        totalProfit: revenue - totalCost + deliveryTotal,
-        topDishes: Object.values(dishMap).sort((a, b) => b.total - a.total),
+        totalProfit: revenue - totalCost,
+        topDishes: topDishes.sort((a, b) => b.total - a.total),
         topClients: Object.values(clientMap).sort((a, b) => b.totalRevenue - a.totalRevenue),
         dayOfWeek: Object.entries(dayCount).map(([name, count]) => ({ name, count })),
       })
@@ -527,14 +599,15 @@
         const items = orders.flatMap(o => o.items)
         const revenue = items.reduce((s, i) => s + (i.unit_price || 0) * i.quantity, 0)
         const cost = items.reduce((s, i) => s + (i.unit_cost || 0) * i.quantity, 0)
-        return { orders: orders.length, revenue, cost, profit: revenue - cost, margin: revenue > 0 ? (revenue - cost) / revenue * 100 : 0 }
+        return { orders: orders.length, revenue, cost, profit: revenue - cost, margin: revenue > 0 ? (revenue - cost) / revenue * 100 : null }
       }
       const p1 = calc(ordersP1)
       const p2 = calc(ordersP2)
       const changes = {}
-      for (const key of ['orders', 'revenue', 'cost', 'profit', 'margin']) {
-        changes[key] = p1[key] !== 0 ? Math.round((p2[key] - p1[key]) / p1[key] * 100) : 0
+      for (const key of ['orders', 'revenue', 'cost', 'profit']) {
+        changes[key] = p1[key] !== 0 ? Math.round((p2[key] - p1[key]) / Math.abs(p1[key]) * 1000) / 10 : null
       }
+      changes.margin = p1.revenue > 0 && p2.revenue > 0 ? Math.round((p2.margin - p1.margin) * 10) / 10 : null
       return Promise.resolve({ period1: p1, period2: p2, changes })
     },
 
@@ -610,8 +683,8 @@
       return this.getAnalyticsFiltered(startDate, endDate)
     },
 
-    exportAnalyticsExcel() {
-      console.log('MOCK: exportAnalyticsExcel')
+    exportAnalyticsExcel(range) {
+      console.log('MOCK: exportAnalyticsExcel', JSON.stringify(range || null))
       return Promise.resolve({ success: true })
     },
 
@@ -634,7 +707,7 @@
       DATA.orders = ORDERS
       DATA.orderItems = ORDERS.flatMap(o => o.items.map(item => ({ ...item, order_id: o.id })))
       DATA.production = PRODUCTION
-      DATA._nextId = nextOrderId
+      DATA._nextId = 1000
       DATA.deliveryFee = 500
       return Promise.resolve({ success: true })
     },

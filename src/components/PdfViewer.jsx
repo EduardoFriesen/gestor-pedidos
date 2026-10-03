@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import Modal from './Modal'
 
-export default function PdfViewer({ pdfDoc, title, onClose }) {
+export default function PdfViewer({ pdfDoc, title, onClose, children }) {
   const [dataUrl, setDataUrl] = useState(null)
   const blobUrlRef = useRef(null)
 
@@ -46,6 +46,7 @@ export default function PdfViewer({ pdfDoc, title, onClose }) {
           </div>
         )}
       </div>
+      {children}
       <div className="form-actions">
         <button className="btn btn-ghost btn-lg" onClick={onClose}>Cerrar</button>
         <button className="btn btn-primary btn-lg" onClick={() => pdfDoc?.save(`${title || 'documento'}.pdf`)}>

@@ -1,4 +1,9 @@
-import { jsPDF } from 'jspdf'
+import { jsPDF, GState } from 'jspdf'
+import etiquetaImg from '../img/logo-circle.png?inline'
+
+const LOGO_SIZE = 256
+const LOGO_OPACITY = 0.20
+const MAX_NOTE_LINES = 2
 
 export function generarEtiquetasDelivery(orders) {
   const doc = new jsPDF('p', 'mm', 'a4')
@@ -17,10 +22,21 @@ export function generarEtiquetasDelivery(orders) {
   function neededHeight(order) {
     const itemsH = order.items ? order.items.length * 9 : 0
     const deliveryH = order.has_delivery ? 3.5 : 0
-    return 22 + itemsH + deliveryH + 5 + 3
+    const notesH = order.notes ? 10 : 0
+    return 22 + itemsH + deliveryH + notesH + 5 + 3
   }
 
   function drawLabel(x, y, w, h, order) {
+    const scale = Math.max(w, h) / LOGO_SIZE
+    const iw = LOGO_SIZE * scale
+    const ih = LOGO_SIZE * scale
+    const ix = x + (w - iw) / 2
+    const iy = y + (h - ih) / 2
+
+    doc.setGState(new GState({ opacity: LOGO_OPACITY }))
+    doc.addImage(etiquetaImg, 'JPEG', ix, iy, iw, ih, 'logo')
+    doc.setGState(new GState({ opacity: 1 }))
+
     doc.setDrawColor(180)
     doc.setLineWidth(0.5)
     doc.rect(x, y, w, h)
@@ -78,6 +94,14 @@ export function generarEtiquetasDelivery(orders) {
       doc.setFontSize(9)
       doc.text(`Envío: $${(order.delivery_fee || 0).toFixed(0)}`, x + padX, ty)
       ty += 3.5
+    }
+
+    if (order.notes) {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      const wrapped = doc.splitTextToSize(`Obs: ${order.notes}`, w - padX * 2 - 4)
+      doc.text(wrapped.slice(0, MAX_NOTE_LINES), x + padX, ty)
+      ty += Math.min(wrapped.length, MAX_NOTE_LINES) * 4 + 2
     }
 
     doc.setFont('helvetica', 'bold')
@@ -212,6 +236,141 @@ export function generarListaCompras(ingredients) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(14)
     doc.text('No hay ingredientes configurados en los platos.', margin, 40)
+  }
+
+  return doc
+}
+
+export const DAY_LABELS = { lunes: 'Lunes', martes: 'Martes', miercoles: 'Miércoles', jueves: 'Jueves', viernes: 'Viernes', sabado: 'Sábado', domingo: 'Domingo' }
+export const DAY_ORDER = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']
+
+export function generarHojaRuta(route, city, weekData, maps = null, stats = null) {
+  const doc = new jsPDF('p', 'mm', 'a4')
+  const pageWidth = 210
+  const margin = 15
+  const colN = 10
+  const colName = 45
+  const colAddr = 85
+  const rowH = 8
+  const headerH = 10
+
+  let y = margin
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.text('PIU - Hoja de Ruta', margin, y)
+  y += 8
+
+  if (weekData?.week_start) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text(`${weekData.week_start} - ${weekData.week_end}`, margin, y)
+    y += 6
+  }
+
+  if (city) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text(`Partida: ${city}`, margin, y)
+    y += 8
+  }
+
+  const days = DAY_ORDER.filter(d => route[d] && route[d].length > 0)
+
+  for (const day of days) {
+    const dayOrders = route[day]
+
+    if (y + rowH * (dayOrders.length + 1) + 20 > 297 - margin) {
+      doc.addPage()
+      y = margin
+    }
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.text(DAY_LABELS[day] || day, margin, y)
+    y += 8
+
+    const dayStats = stats?.[day]
+    if (dayStats && dayStats.distance > 0) {
+      const km = (dayStats.distance / 1000).toFixed(1).replace('.', ',')
+      const summary = dayStats.method === 'osrm' && dayStats.duration
+        ? `Recorrido estimado: ${km} km · ~${Math.round(dayStats.duration / 60)} min`
+        : `Distancia aproximada (en línea recta): ${km} km`
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text(summary, margin, y - 2)
+      y += 4
+    }
+
+    doc.setDrawColor(180)
+    doc.setLineWidth(0.3)
+    doc.setFillColor(240, 240, 240)
+    doc.rect(margin, y, pageWidth - margin * 2, headerH, 'F')
+    doc.setLineWidth(0.2)
+    doc.line(margin, y, pageWidth - margin, y)
+    doc.line(margin, y + headerH, pageWidth - margin, y + headerH)
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    let cx = margin + 2
+    doc.text('#', cx, y + 6.5); cx += colN
+    doc.text('Nombre', cx, y + 6.5); cx += colName
+    doc.text('Dirección', cx, y + 6.5); cx += colAddr
+    doc.text('Monto', cx, y + 6.5)
+
+    y += headerH
+
+    dayOrders.forEach((order, i) => {
+      if (y + rowH > 297 - margin) {
+        doc.addPage()
+        y = margin
+      }
+
+      doc.setLineWidth(0.1)
+      doc.setDrawColor(220)
+      doc.line(margin, y, pageWidth - margin, y)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      cx = margin + 2
+      doc.text(String(i + 1), cx, y + 5.5); cx += colN
+      const name = (order.client_name || '—').slice(0, 22)
+      doc.text(name, cx, y + 5.5); cx += colName
+      const addr = ([order.client_address || order.address, order.client_locality].filter(Boolean).join(', ') || '—').slice(0, 35)
+      doc.text(addr, cx, y + 5.5); cx += colAddr
+      const total = typeof order.total === 'number' ? '$' + order.total.toFixed(2) : (order.total || '—')
+      doc.text(total, cx, y + 5.5)
+
+      y += rowH
+    })
+
+    doc.setDrawColor(180)
+    doc.setLineWidth(0.2)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 6
+
+    const dayMaps = maps?.[day] || []
+    dayMaps.forEach((leg, i) => {
+      const qrSize = 30
+      if (y + qrSize + 4 > 297 - margin) {
+        doc.addPage()
+        y = margin
+      }
+      if (leg.qr) doc.addImage(leg.qr, 'PNG', margin, y, qrSize, qrSize)
+      const tx = margin + qrSize + 5
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      const legLabel = dayMaps.length > 1 ? ` (tramo ${i + 1}/${dayMaps.length})` : ''
+      doc.text(`Recorrido en Google Maps${legLabel}`, tx, y + 8)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.text('Escanear con el celular para abrir el recorrido', tx, y + 14)
+      doc.setTextColor(37, 99, 235)
+      doc.textWithLink('Abrir en Google Maps', tx, y + 20, { url: leg.url })
+      doc.setTextColor(0, 0, 0)
+      y += qrSize + 4
+    })
+    if (dayMaps.length > 0) y += 2
   }
 
   return doc
