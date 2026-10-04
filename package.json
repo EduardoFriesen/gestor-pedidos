@@ -55,7 +55,6 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
     "leaflet": "^1.9.4",
-    "playwright": "^1.61.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
@@ -66,7 +65,7 @@
     "concurrently": "^9.1.0",
     "electron": "^33.2.0",
     "electron-builder": "^26.15.3",
-    "jimp": "^1.6.1",
+    "playwright": "^1.61.1",
     "vite": "^6.0.0",
     "wait-on": "^8.0.0"
   }

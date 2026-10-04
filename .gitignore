@@ -1,6 +1,11 @@
 node_modules/
 dist/
 release/
+build/*
+!build/icon.png
+!build/icon.ico
+piu.json
 piu.test.json
 test-report.json
-build/
+test-results/
+test-e2e/report.json
