@@ -834,6 +834,105 @@ async function runAll() {
     }
   })
 
+  // ─── KEYBOARD ────────────────────────────────────────────────
+  console.log('\n═══════ KEYBOARD ═══════\n')
+  const dialogCount = () => page.locator('[role="dialog"]').count()
+
+  await page.goto(BASE_URL + '/#/clients')
+  await waitForApp(page)
+  await waitForContent(page, 'button[aria-label="Editar cliente"]')
+
+  await runSuite('KEYBOARD: Enter crea cliente y Esc en "¿Cargar otro?" termina el alta', async () => {
+    await page.locator('button:has-text("+ Cliente")').click()
+    await page.waitForTimeout(500)
+    const focused = await page.evaluate(() => document.activeElement?.id)
+    assert(focused === 'client-name', `Foco inicial debería estar en nombre, está en ${focused}`)
+    await page.keyboard.type('Teclado')
+    await page.locator('#client-last-name').fill('Prueba Enter')
+    await page.locator('#client-last-name').press('Enter')
+    await page.waitForSelector('text=¿Cargar otro?', { timeout: 3000 })
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+    assert(await page.locator('#client-name').count() === 0 || await dialogCount() === 0, 'Esc en el popup debería cerrar el flujo de alta')
+    assert(await page.locator('text=Teclado Prueba Enter').count() > 0, 'El cliente creado con Enter no aparece')
+  })
+
+  await runSuite('KEYBOARD: Esc cierra el formulario de cliente', async () => {
+    await page.locator('button:has-text("+ Cliente")').click()
+    await page.waitForTimeout(500)
+    assert(await page.locator('#client-name').count() === 1, 'Formulario no abierto')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+    assert(await page.locator('#client-name').count() === 0, 'Esc no cerró el formulario')
+  })
+
+  await runSuite('KEYBOARD: confirmación de borrar con flechas y Enter cancela', async () => {
+    const before = await page.locator('button[aria-label="Editar cliente"]').count()
+    await page.locator('button[aria-label="Eliminar cliente"]').last().click()
+    await page.waitForSelector('text=¿Eliminar este cliente?', { timeout: 3000 })
+    await page.waitForTimeout(300)
+    await page.keyboard.press('ArrowRight')
+    const label = await page.evaluate(() => document.activeElement?.textContent?.trim())
+    assert(label === 'No', `→ debería ir a "No", está en "${label}"`)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(400)
+    assert(await page.locator('text=¿Eliminar este cliente?').count() === 0, 'Popup no se cerró')
+    assert(await page.locator('button[aria-label="Editar cliente"]').count() === before, 'No debería haber borrado')
+  })
+
+  await page.goto(BASE_URL + '/#/ingredients')
+  await waitForApp(page)
+  await waitForContent(page, 'button[aria-label="Editar ingrediente"]')
+
+  await runSuite('KEYBOARD: Enter guarda ingrediente editado', async () => {
+    await page.locator('button[aria-label="Editar ingrediente"]').first().click()
+    await page.waitForTimeout(500)
+    await page.locator('#ing-name').press('Enter')
+    await page.waitForTimeout(500)
+    assert(await page.locator('#ing-name').count() === 0, 'Enter no guardó/cerró el modal de ingrediente')
+  })
+
+  await page.goto(BASE_URL + '/#/menu')
+  await waitForApp(page)
+  await waitForContent(page, 'button[aria-label="Editar plato"]')
+
+  await runSuite('KEYBOARD: Enter guarda plato editado', async () => {
+    await page.locator('button[aria-label="Editar plato"]').first().click()
+    await page.waitForTimeout(500)
+    await page.locator('#dish-name').press('Enter')
+    await page.waitForTimeout(500)
+    assert(await page.locator('#dish-name').count() === 0, 'Enter no guardó/cerró el modal de plato')
+  })
+
+  await page.goto(BASE_URL + '/#/orders')
+  await waitForApp(page)
+  await waitForContent(page, 'button:has-text("+ Pedido")')
+
+  await runSuite('KEYBOARD: pedido completo con teclado', async () => {
+    await page.locator('button:has-text("+ Pedido")').click()
+    await page.waitForTimeout(500)
+    const search = page.locator('input[aria-label="Buscar cliente"]')
+    await search.focus()
+    await search.press('ArrowDown')
+    await search.press('Enter')
+    await page.waitForTimeout(300)
+    assert(await page.locator('[aria-label="Cambiar cliente"]').count() === 1, '↓ + Enter no eligió cliente')
+    assert(await page.locator('text=Nuevo Pedido').count() > 0, 'Enter en el buscador no debería enviar el pedido')
+    await page.locator('select[aria-label="Plato 1"]').selectOption({ index: 1 })
+    const noBtn = page.locator('.modal-content button:text-is("No")')
+    await noBtn.focus()
+    await page.keyboard.press('ArrowRight')
+    const label = await page.evaluate(() => document.activeElement?.textContent?.trim())
+    assert(label === 'Sí', `→ desde "No" debería ir a "Sí", está en "${label}"`)
+    const notes = page.locator('textarea[placeholder="Observaciones del pedido..."]')
+    await notes.fill('linea 1')
+    await notes.press('Control+Enter')
+    await page.waitForTimeout(600)
+    assert(await page.locator('text=¿Cargar otro?').count() > 0, 'Ctrl+Enter no creó el pedido')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+  })
+
   // ─────────────────────────────────────────────
   // Iteration 4: Empty state tests
   // ─────────────────────────────────────────────

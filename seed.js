@@ -54,58 +54,6 @@ function getSaturday(date) {
   return d
 }
 
-/**
- * Generate monthly inflation rates that compound to ~25% annually
- * with random variation per month and seasonal patterns.
- *
- * Strategy:
- * - Target annual rate: 25% (1.25x)
- * - Monthly base: (1.25)^(1/12) - 1 ≈ 1.877%
- * - Each month gets a random multiplier (0.5x to 1.5x) of base rate
- * - Re-normalized so 12 months still compound to 1.25
- * - Extra jitter: +/- 0.3% absolute random offset
- * - Seasonal: Q1 (Jan-Mar) slightly higher (summer demand),
- *   Q3 (Jul-Sep) slightly lower
- */
-function generateMonthlyRates(year) {
-  const targetAnnual = 1.25
-  const rates = []
-
-  const yrSeed = year * 911
-  const localRng = (() => {
-    let s = yrSeed * 16807 + 13
-    return () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646 }
-  })()
-
-  // Generate 12 random weights, then scale so they average to 1
-  const rawWeights = []
-  for (let m = 0; m < 12; m++) {
-    // Seasonal: Q1 (Jan-Mar) higher demand, Q3 (Jul-Sep) lower
-    const seasonalWeight = (m >= 0 && m <= 2) ? 1.3 : (m >= 6 && m <= 8) ? 0.7 : 1.0
-    rawWeights.push(seasonalWeight * (0.3 + localRng() * 1.4))
-  }
-
-  const avgWeight = rawWeights.reduce((a, b) => a + b, 0) / 12
-  const normalizedWeights = rawWeights.map(w => w / avgWeight)
-
-  // Compute the monthly rate such that product(1 + base * w_m) = 1.25
-  // Use binary search
-  let lo = 0, hi = 0.1
-  for (let iter = 0; iter < 50; iter++) {
-    const mid = (lo + hi) / 2
-    const prod = normalizedWeights.reduce((p, w) => p * (1 + mid * w), 1)
-    if (prod < targetAnnual) lo = mid
-    else hi = mid
-  }
-
-  const baseRate = (lo + hi) / 2
-  for (let m = 0; m < 12; m++) {
-    rates.push(baseRate * normalizedWeights[m])
-  }
-
-  return rates
-}
-
 const INGREDIENT_CATALOG = [
   { name: 'Harina 0000', unit: 'kg', cost: 45, category: 'Secos' },
   { name: 'Agua', unit: 'l', cost: 0.3, category: 'Básicos' },
@@ -239,119 +187,6 @@ const DISH_TEMPLATES = {
 const CORE_CATEGORIES = ['Pizzas', 'Empanadas', 'Tartas', 'Sandwiches']
 const ROTATION_CATEGORIES = ['Pastas', 'Guisos', 'Extras']
 
-// ============== 200 CLIENTS ==============
-
-const NAMES = [
-  'Juan', 'Carlos', 'María', 'Laura', 'Diego', 'Ana', 'Pablo', 'Florencia',
-  'Martín', 'Romina', 'Lucas', 'Sofía', 'Nicolás', 'Julieta', 'Fernando',
-  'Valeria', 'Alejandro', 'Carolina', 'Gustavo', 'Luciana', 'Marcelo',
-  'Gabriela', 'Sebastián', 'Verónica', 'Javier', 'Marcela', 'Leandro',
-  'Silvina', 'Damián', 'Nadia', 'Federico', 'Belén', 'Andrés', 'Melina',
-  'Ezequiel', 'Cinthia', 'Emiliano', 'Noelia', 'Cristian', 'Yamila',
-  'Sergio', 'Evelyn', 'Matías', 'Daiana', 'Rodrigo', 'Ayelen', 'Julián',
-  'Candela', 'Brian', 'Aldana', 'Kevin', 'Morena', 'Jonathan', 'Brisa',
-  'Hernán', 'Milagros', 'Esteban', 'Lourdes', 'Maximiliano', 'Ramiro',
-  'Soledad', 'Guillermo', 'Paula', 'Ignacio', 'Lorena', 'Franco', 'Virginia',
-  'Agustín', 'Mercedes', 'Tomás', 'Celeste', 'Mauro', 'Andrea', 'Bruno',
-  'Daniela', 'Facundo', 'Gisela', 'Leonardo', 'Tamara', 'Ricardo', 'Roxana',
-  'Mario', 'Bárbara', 'Alberto', 'Gladys', 'Raúl', 'Stella', 'Oscar',
-  'Mónica', 'Hugo', 'Patricia', 'Enrique', 'Graciela', 'Omar', 'Liliana',
-  'Claudio', 'Adriana', 'Jorge', 'Mabel', 'Alfredo', 'Alicia', 'Rubén',
-  'Elsa', 'Norberto', 'Susana', 'Osvaldo', 'Mirta', 'Pedro', 'Beatriz',
-  'Angel', 'Norma', 'Walter', 'Irene', 'Néstor', 'Haydée', 'Víctor',
-  'Nelida', 'Luis', 'Rosa', 'Mónica', 'Hector', 'Stella', 'Daniel',
-  'Margarita', 'Ismael', 'Elena', 'Rolando', 'Carmen', 'César', 'Teresa',
-  'Lorenzo', 'Claudia', 'Fabián', 'Pilar', 'Rafael', 'Eva', 'Mauricio',
-  'Sandra', 'René', 'Diana', 'Gonzalo', 'Cecilia', 'Emilio', 'Ruth',
-  'Raúl', 'Nora', 'Iván', 'Amalia', 'Alberto', 'Lidia', 'Vicente',
-]
-
-const LASTNAMES = [
-  'González', 'Rodríguez', 'Martínez', 'López', 'Fernández', 'García',
-  'Sánchez', 'Pérez', 'Gómez', 'Díaz', 'Torres', 'Álvarez', 'Ruiz',
-  'Castro', 'Romero', 'Molina', 'Silva', 'Paz', 'Acosta', 'Ríos',
-  'Medina', 'Herrera', 'Pereyra', 'Quintana', 'Vega', 'Ferreyra',
-  'Campos', 'Aguirre', 'Luna', 'Bustos', 'Godoy', 'Sosa', 'Cabrera',
-  'Villalba', 'Ojeda', 'Navarro', 'Ortiz', 'Chávez', 'Arias', 'Ramos',
-  'Muñoz', 'Correa', 'Rivero', 'Peralta', 'Escobar', 'Benítez', 'Cuello',
-  'Vázquez', 'Olivera', 'Ponce', 'Moreno', 'Castillo', 'Rivas', 'Suárez',
-  'Santiago', 'Domínguez', 'Carrizo', 'Ledesma', 'Ávila', 'Roldán',
-  'Juárez', 'Pereyra', 'Morales', 'Córdoba', 'Paz', 'Iglesias',
-  'Giménez', 'Mendoza', 'Barrios', 'Montenegro', 'Santillán', 'Leiva',
-  'Moyano', 'Moreira', 'Vera', 'Ferreira', 'Toledo', 'Aguilera',
-  'Varela', 'Méndez', 'Roldán', 'Cruz', 'Velázquez', 'Rivas',
-  'Barrionuevo', 'Lucero', 'Cortéz', 'Cabaña', 'Quiroga', 'Lobo',
-  'Bazán', 'Villegas', 'Carranza', 'Martí', 'Guerra', 'Alarcón',
-  'Vidal', 'Ponce', 'Calderón', 'Figueroa', 'Villagra', 'Maldonado',
-  'Duarte', 'Britez', 'Oviedo', 'Mansilla', 'Saavedra', 'Funes',
-  'Troncoso', 'Lencina', 'Cáceres', 'Benegas', 'Zalazar', 'Yañez',
-  'Barreto', 'Cáceres', 'Aquino', 'Villalba', 'Leguizamón', 'Bogado',
-  'Fernández', 'Báez', 'Ayala', 'Rojas', 'Alcaraz', 'Insaurralde',
-]
-
-const STREETS = [
-  'Av. Corrientes', 'Av. Santa Fe', 'Callao', 'Córdoba', 'Florida',
-  'Lavalle', 'Av. de Mayo', 'Belgrano', 'Rivadavia', 'San Martín',
-  'Av. Cabildo', 'Av. Libertador', 'Bulnes', 'Acuña de Figueroa',
-  'Av. Pueyrredón', 'Juncal', 'Paraguay', 'Uruguay', 'Viamonte',
-  'Tucumán', 'Montevideo', 'Brasil', 'Carlos Calvo', 'Independencia',
-  'Adolfo Alsina', 'Moreno', 'Cochabamba', 'Caseros', 'México',
-  'Venezuela', 'Chacabuco', 'Piedras', 'Saavedra', 'Salta', 'Jujuy',
-  'Lima', 'Cerrito', 'Talcalguano', 'Riobamba', 'Azcuénaga',
-]
-
-const LOCALITIES = [
-  'Palermo', 'Recoleta', 'Belgrano', 'Nuñez', 'Caballito', 'Almagro',
-  'Villa Crespo', 'La Boca', 'San Telmo', 'Barracas', 'Flores',
-  'Floresta', 'Villa Urquiza', 'Saavedra', 'Devoto', 'Villa Pueyrredón',
-  'Villa del Parque', 'Villa Luro', 'Mataderos', 'Liniers', 'Villa Devoto',
-]
-
-const NOTES_TEMPLATES = [
-  'Sin cebolla', 'Con extra queso', 'Bien cocido', 'Sin sal',
-  'Enviar después de las 20:00', 'Llamar antes de enviar', 'Poco condimento',
-  'Sin TACC', 'Para celíaco', 'Acompañar con salsas extra',
-  '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-]
-
-const STATUSES = ['pending', 'confirmed', 'assembled', 'delivered']
-
-function generateClients() {
-  const used = new Set()
-  const clients = []
-  let id = 1
-  let ni = 0
-  let li = 0
-
-  for (let i = 0; i < 200; i++) {
-    const name = NAMES[ni]
-    let lastName = LASTNAMES[li]
-    const key = `${name}|${lastName}`
-    if (used.has(key)) {
-      lastName += ' ' + LASTNAMES[(li + 1) % LASTNAMES.length]
-    }
-    used.add(`${name}|${lastName}`)
-
-    const street = pickOne(STREETS)
-    const number = randInt(100, 3500)
-    const locality = pickOne(LOCALITIES)
-    const phone = `11 ${String(randInt(1000, 9999))}-${String(randInt(1000, 9999))}`
-
-    clients.push({
-      id: id++,
-      name,
-      last_name: lastName,
-      phone,
-      address: `${street} ${number}, ${locality}`,
-      notes: RNG() > 0.7 ? `Cliente desde ${2020 + randInt(0, 5)}` : ''
-    })
-
-    ni = (ni + 1) % NAMES.length
-    if (ni === 0) li = (li + 1) % LASTNAMES.length
-  }
-  return clients
-}
-
 function generateSubProducts(ingByName) {
   const subs = []
 
@@ -404,450 +239,414 @@ function generateSubProducts(ingByName) {
   }
 }
 
-function calcCompositeCost(ing, ingByName) {
-  if (!ing.subIngredients || ing.subIngredients.length === 0) return ing.cost || 0
-  const total = ing.subIngredients.reduce((sum, si) => {
-    const subIng = Object.values(ingByName).find(i => i.id === si.ingredientId)
-    return sum + (subIng?.cost || 0) * si.quantity
-  }, 0)
-  return ing.batchYield > 0 ? total / ing.batchYield : total
+const CURRENT_COST = {
+  'Harina 0000': 1400, 'Agua': 2, 'Levadura fresca': 12, 'Sal': 1300, 'Muzzarella': 11000,
+  'Aceite de oliva': 18000, 'Tomate perita': 2500, 'Ajo': 9000, 'Cebolla': 1500, 'Orégano': 30,
+  'Jamón cocido': 16000, 'Morrón': 6000, 'Aceitunas verdes': 12000, 'Huevo': 250, 'Longaniza': 14000,
+  'Tapas para empanada': 2500, 'Carne (cortada a cuchillo)': 14000, 'Comino': 40, 'Pimentón': 30,
+  'Grasa de pella': 4000, 'Ají molido': 30, 'Pollo': 6500, 'Crema de leche': 9000, 'Choclo': 3500,
+  'Salsa blanca': 6000, 'Albahaca': 40, 'Queso cremoso': 12000, 'Tapas de tarta': 3000,
+  'Zapallito': 3000, 'Zanahoria': 1300, 'Calabaza': 1500, 'Nuez moscada': 80, 'Espinaca': 4000,
+  'Ricota': 7000, 'Queso rallado': 18000, 'Carne picada': 11000, 'Papa': 1200, 'Láminas de pasta': 7000,
+  'Lomo': 28000, 'Pan de miga': 700, 'Lechuga': 3500, 'Mayonesa': 6000, 'Milanesa de carne': 15000,
+  'Medallón de garbanzo': 1500, 'Pan integral': 800, 'Palta': 9000, 'Mostaza': 5000, 'Bondiola': 13000,
+  'Cebolla morada': 2500, 'Salsa criolla': 5000, 'Pan de hamburguesa': 600, 'Queso cheddar': 16000,
+  'Panceta': 18000, 'Papas fritas (congeladas)': 5500, 'Harina integral': 1800, 'Fideos secos': 2500,
+  'Lentejas': 4000, 'Arroz': 1800, 'Puré de tomate': 2200, 'Vino tinto': 6000, 'Laurel': 50,
+  'Tomillo': 50, 'Perejil': 15, 'Caldo de carne': 300, 'Batata': 1800, 'Huevo duro': 280
 }
 
-function generateIngredients(monthIndex) {
-  const ingredients = INGREDIENT_CATALOG.map((item, i) => {
-    const createDate = new Date(2022, 0, 1)
-    createDate.setFullYear(2022 + Math.floor(i / 10))
-    return {
-      id: i + 1,
-      name: item.name,
-      unit: item.unit,
-      cost: item.cost,
-      category: item.category,
-      is_active: true,
-      batchYield: 1,
-      subIngredients: [],
-      last_cost_update: fmtDatetime(createDate)
-    }
-  })
+const PACKAGES = {
+  'Harina 0000': 25, 'Muzzarella': 10, 'Huevo': 30, 'Aceite de oliva': 5, 'Sal': 1,
+  'Papa': 20, 'Cebolla': 10, 'Tapas para empanada': 1, 'Pan de hamburguesa': 12, 'Queso rallado': 1
+}
 
+const INACTIVE_INGREDIENTS = ['Harina integral', 'Arroz']
+
+const PRICE_MULTIPLIER = { Pizzas: 3.2, Empanadas: 6.5, Tartas: 3.4, Sandwiches: 2.8, Pastas: 2.4, Guisos: 2.3, Extras: 2.2 }
+
+const MONTHLY_INFLATION = {
+  2024: [20.6, 13.2, 11.0, 8.8, 4.2, 4.6, 4.0, 4.2, 3.5, 2.7, 2.4, 2.7],
+  2025: [2.2, 2.4, 3.7, 2.8, 1.5, 1.6, 1.9, 1.9, 2.1, 2.3, 2.5, 2.8],
+  2026: [2.6, 2.4, 2.3, 2.2, 2.0, 1.9, 1.9, 1.8, 1.8, 1.7, 1.7, 1.7]
+}
+
+const START = new Date(2024, 0, 7)
+const CURRENT_FEE = 2500
+
+const CORDOBA_STREETS = [
+  'Av. Colón', 'Av. Vélez Sarsfield', 'Bv. San Juan', 'Av. Hipólito Yrigoyen', 'Obispo Trejo',
+  'Deán Funes', 'La Rioja', 'Santa Rosa', '27 de Abril', 'Av. Olmos', 'Bv. Chacabuco', 'Av. Maipú',
+  'Rivera Indarte', 'Ituzaingó', 'Bv. Arturo Illia', 'Av. Fernando Fader', 'Av. Rafael Núñez',
+  'Tristán Malbrán', 'Av. Pueyrredón', 'Belgrano', 'Independencia', 'Buenos Aires', 'Paraná',
+  'Laprida', 'Fructuoso Rivera', 'Av. Duarte Quirós', 'Caseros', 'Jujuy', 'Av. Castro Barros',
+  'Bv. Los Andes', 'Av. Juan B. Justo', 'Sucre', 'Tucumán', 'Mendoza', 'Av. Emilio Caraffa',
+  'Av. Amadeo Sabattini', 'Av. Ricchieri', 'Av. Santa Ana', 'Av. Octavio Pinto', 'Achával Rodríguez'
+]
+
+const FIRST_NAMES = [
+  'Juan', 'Carlos', 'María', 'Laura', 'Diego', 'Ana', 'Pablo', 'Florencia', 'Martín', 'Romina',
+  'Lucas', 'Sofía', 'Nicolás', 'Julieta', 'Fernando', 'Valeria', 'Alejandro', 'Carolina', 'Gustavo',
+  'Luciana', 'Marcelo', 'Gabriela', 'Sebastián', 'Verónica', 'Javier', 'Marcela', 'Leandro', 'Silvina',
+  'Damián', 'Nadia', 'Federico', 'Belén', 'Andrés', 'Melina', 'Ezequiel', 'Emiliano', 'Noelia',
+  'Cristian', 'Yamila', 'Sergio', 'Matías', 'Daiana', 'Rodrigo', 'Julián', 'Candela', 'Hernán',
+  'Milagros', 'Esteban', 'Lourdes', 'Ramiro', 'Soledad', 'Guillermo', 'Paula', 'Ignacio', 'Lorena',
+  'Franco', 'Agustín', 'Mercedes', 'Tomás', 'Celeste', 'Mauro', 'Andrea', 'Bruno', 'Daniela',
+  'Facundo', 'Gisela', 'Leonardo', 'Tamara', 'Ricardo', 'Roxana', 'Mario', 'Graciela', 'Hugo',
+  'Patricia', 'Jorge', 'Susana', 'Pedro', 'Beatriz', 'Claudia', 'Gonzalo', 'Cecilia', 'Emilio'
+]
+const LAST_NAMES = [
+  'González', 'Rodríguez', 'Martínez', 'López', 'Fernández', 'García', 'Sánchez', 'Pérez', 'Gómez',
+  'Díaz', 'Torres', 'Álvarez', 'Ruiz', 'Castro', 'Romero', 'Molina', 'Silva', 'Paz', 'Acosta', 'Ríos',
+  'Medina', 'Herrera', 'Pereyra', 'Vega', 'Ferreyra', 'Aguirre', 'Luna', 'Bustos', 'Godoy', 'Sosa',
+  'Cabrera', 'Ojeda', 'Navarro', 'Ortiz', 'Arias', 'Ramos', 'Correa', 'Rivero', 'Peralta', 'Moreno',
+  'Suárez', 'Domínguez', 'Carrizo', 'Ledesma', 'Ávila', 'Roldán', 'Juárez', 'Giménez', 'Barrios',
+  'Moyano', 'Vera', 'Toledo', 'Quiroga', 'Bazán', 'Figueroa', 'Funes', 'Oviedo', 'Lucero', 'Altamirano'
+]
+const CLIENT_NOTES = ['Depto 4B', 'Timbre no anda, llamar al llegar', 'Portería: dejar en recepción', 'Casa con portón verde', 'Celíaca: sin TACC', 'Paga con transferencia', '', '', '', '', '', '', '', '']
+const ORDER_NOTES = ['Sin cebolla', 'Bien cocido', 'Sin sal', 'Llamar antes de enviar', 'Enviar después de las 20', 'Poco condimento', 'Cortar en 8', '', '', '', '', '', '', '', '', '', '', '', '', '']
+
+let nextId = 1
+const genId = () => nextId++
+
+function monthKey(d) { return `${d.getFullYear()}-${d.getMonth()}` }
+
+function buildInflation() {
+  const table = new Map()
+  let cum = 1
+  const d = new Date(START.getFullYear(), START.getMonth(), 1)
+  const end = new Date(NOW.getFullYear(), NOW.getMonth(), 1)
+  table.set(monthKey(d), cum)
+  while (d < end) {
+    cum *= 1 + (MONTHLY_INFLATION[d.getFullYear()]?.[d.getMonth()] ?? 2) / 100
+    d.setMonth(d.getMonth() + 1)
+    table.set(monthKey(d), cum)
+  }
+  return { table, now: cum }
+}
+
+function weightedPick(items, weights) {
+  const total = weights.reduce((a, b) => a + b, 0)
+  let r = RNG() * total
+  for (let i = 0; i < items.length; i++) {
+    r -= weights[i]
+    if (r <= 0) return items[i]
+  }
+  return items[items.length - 1]
+}
+
+function generateClients() {
+  const used = new Set()
+  const clients = []
+  while (clients.length < 150) {
+    const name = pickOne(FIRST_NAMES)
+    const last = pickOne(LAST_NAMES)
+    if (used.has(name + last)) continue
+    used.add(name + last)
+    const pickupOnly = RNG() < 0.12
+    const address = pickupOnly ? '' : `${pickOne(CORDOBA_STREETS)} ${randInt(1, 30) * 100 + randInt(0, 99)}`
+    clients.push({
+      id: genId(),
+      name,
+      last_name: last,
+      phone: RNG() < 0.93 ? `351 ${randInt(400, 799)}-${String(randInt(0, 9999)).padStart(4, '0')}` : '',
+      address,
+      locality: 'Córdoba',
+      notes: pickOne(CLIENT_NOTES),
+      _weight: Math.pow(RNG(), 2.5) * 10 + 0.2,
+      _since: new Date(START.getTime() + RNG() * (NOW.getTime() - START.getTime()) * 0.8)
+    })
+  }
+  return clients
+}
+
+function generateIngredients() {
+  const ingredients = INGREDIENT_CATALOG.map(item => ({
+    id: genId(),
+    name: item.name,
+    unit: item.unit,
+    cost: CURRENT_COST[item.name] ?? item.cost,
+    category: item.category,
+    is_active: !INACTIVE_INGREDIENTS.includes(item.name),
+    batchYield: 1,
+    subIngredients: [],
+    package_qty: 0,
+    package_price: 0,
+    last_cost_update: null
+  }))
   const byName = {}
   for (const ing of ingredients) byName[ing.name] = ing
-
   generateSubProducts(byName)
-
-  for (const ing of ingredients) {
-    if (ing.subIngredients && ing.subIngredients.length > 0) {
-      ing.cost = calcCompositeCost(ing, byName)
-    }
-  }
-
-  return ingredients
+  return { ingredients, byName }
 }
 
-function generateDishes(ingredients) {
-  const ingByName = {}
-  for (const ing of ingredients) {
-    ingByName[ing.name] = ing
-  }
+function resolveCost(ing, byId, depth = 0) {
+  if (!ing) return 0
+  if (!ing.subIngredients || ing.subIngredients.length === 0 || depth > 5) return ing.cost || 0
+  const total = ing.subIngredients.reduce((s, si) => s + resolveCost(byId[si.ingredientId], byId, depth + 1) * si.quantity, 0)
+  return total / (ing.batchYield || 1)
+}
 
-  let id = 1
+function generateDishes(byName) {
   const dishes = []
   for (const [category, items] of Object.entries(DISH_TEMPLATES)) {
     for (const item of items) {
-      const structuredIngredients = item.ingr.map(i => {
-        const ing = ingByName[i.name]
-        return { ingredientId: ing ? ing.id : null, quantity: i.qty }
-      })
-      const isCore = CORE_CATEGORIES.includes(category)
       dishes.push({
-        id: id++,
+        id: genId(),
         name: item.name,
         category,
-        price: item.price,
-        ingredients: structuredIngredients,
+        _currentPrice: Math.round(item.price * PRICE_MULTIPLIER[category] / 100) * 100,
+        price: 0,
+        ingredients: item.ingr.filter(i => byName[i.name]).map(i => ({ ingredientId: byName[i.name].id, quantity: i.qty })),
         is_active: true,
-        is_core: isCore
+        last_price_review: null
       })
     }
   }
   return dishes
 }
 
-function getActiveRotationForMonth(rotationDishes, year, month) {
-  const monthSeed = year * 12 + month
-  const localRng = (() => {
-    let s = monthSeed * 16807
-    return () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646 }
-  })()
-  const shuffled = [...rotationDishes].sort(() => localRng() - 0.5)
-  return shuffled.slice(0, 10)
+function rotationForMonth(rotation, year, month) {
+  let s = (year * 12 + month) * 16807
+  const local = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646 }
+  return [...rotation].sort(() => local() - 0.5).slice(0, 8)
 }
 
-/**
- * Precompute inflation multiplier for each month from 2022-01 to endDate.
- * Returns Map<"year-month", factor> where factor compounds month-over-month.
- */
-function buildInflationTable(endDate) {
-  const table = new Map()
-  let cumulative = 1
-  const startYear = 2022
-  const endYear = endDate.getFullYear()
-  const endMonth = endDate.getMonth()
-
-  // 2022-01 (month 0) is the base — cumFactor = 1
-  table.set('2022-0', 1)
-
-  for (let y = startYear; y <= endYear; y++) {
-    const rates = generateMonthlyRates(y)
-    const maxM = y === endYear ? endMonth + 1 : 12
-    for (let m = 0; m < maxM; m++) {
-      const key = `${y}-${m}`
-      if (y === startYear && m === 0) continue
-      // Apply the rate of the PREVIOUS month to move from one month to the next
-      // e.g., 2022-1 gets rates[0], 2022-2 gets rates[1], etc.
-      // For year boundary: 2023-0 gets rates[11] of previous year
-      if (m === 0) {
-        const prevRates = generateMonthlyRates(y - 1)
-        cumulative *= (1 + prevRates[11])
-      } else {
-        cumulative *= (1 + rates[m - 1])
-      }
-      table.set(key, cumulative)
-    }
-  }
-  return table
-}
-
-/**
- * Apply inflation to a cost given base cost and cumulative multiplier.
- * Adds random variation so ingredients in the same month don't all have
- * the exact same price.
- */
-function inflatedCost(baseCost, cumFactor) {
-  const variation = 0.92 + RNG() * 0.16
-  return Math.round(baseCost * cumFactor * variation * 100) / 100
-}
-
-function generateWeeks(allDishes, clients, ingredients) {
-  const byName = {}
-  for (const ing of ingredients) byName[ing.name] = ing
-
-  const weeks = []
-  let weekId = 1
-  let orderId = 1
-  let itemId = 1
-  let prodId = 1
-
-  const allClientIds = clients.map(c => c.id)
-  const allIngMap = {}
-  for (const ing of ingredients) allIngMap[ing.id] = ing
-
-  const coreDishes = allDishes.filter(d => CORE_CATEGORIES.includes(d.category))
-  const rotationDishes = allDishes.filter(d => ROTATION_CATEGORIES.includes(d.category))
-
-  const currentSunday = getSunday(NOW)
-  const startDate = getSunday(new Date(2022, 0, 2))
-  const totalWeeks = Math.ceil((currentSunday.getTime() - startDate.getTime()) / (7 * 86400000))
-  const weekData = []
-
-  // Build inflation table once for the entire range
-  const inflationTable = buildInflationTable(NOW)
-
-  // Track ingredient base costs (pre-inflation)
-  const baseCosts = {}
-  for (const ing of ingredients) {
-    const catalog = INGREDIENT_CATALOG.find(c => c.name === ing.name)
-    baseCosts[ing.id] = catalog ? catalog.cost : (ing.cost || 0)
-  }
-
-  // First month has cumFactor = 1 (no inflation)
-  inflationTable.set('2022-0', 1)
-
-  // Track the most recent month we've re-priced ingredients
-  let lastInflationMonth = null
-  let prevCumFactor = 1
-
-  for (let i = 0; i <= totalWeeks; i++) {
-    const weekStart = new Date(startDate)
-    weekStart.setDate(weekStart.getDate() + i * 7)
-    const weekEnd = getSaturday(new Date(weekStart))
-    const ws = fmtDate(weekStart)
-    const we = fmtDate(weekEnd)
-    const isCurrent = fmtDate(currentSunday) === ws
-
-    const weekDate = new Date(weekStart)
-    const monthKey = `${weekDate.getFullYear()}-${weekDate.getMonth()}`
-
-    const week = { id: weekId++, week_start: ws, week_end: we, is_current: isCurrent }
-    weeks.push(week)
-
-    // Re-price ingredients and dishes at the start of each new month
-    if (monthKey !== lastInflationMonth) {
-      lastInflationMonth = monthKey
-      const cumFactor = inflationTable.get(monthKey) || 1
-      const monthlyIncrease = prevCumFactor > 0 ? cumFactor / prevCumFactor : 1
-      prevCumFactor = cumFactor
-
-      // Update base ingredients
-      for (const ing of ingredients) {
-        if (!ing.subIngredients || ing.subIngredients.length === 0) {
-          ing.cost = inflatedCost(baseCosts[ing.id], cumFactor)
-        }
-      }
-
-      // Recalculate composite (sub-product) costs with updated base costs
-      const updatedIngMap = {}
-      for (const ing of ingredients) updatedIngMap[ing.name] = ing
-      for (const ing of ingredients) {
-        if (ing.subIngredients && ing.subIngredients.length > 0) {
-          ing.cost = calcCompositeCost(ing, updatedIngMap)
-        }
-      }
-
-      // Rebuild the id-based map for order item cost calculations
-      for (const ing of ingredients) allIngMap[ing.id] = ing
-
-      // Dish prices: apply monthly increase with small random jitter
-      for (const dish of allDishes) {
-        const adjIncrease = monthlyIncrease * (0.97 + RNG() * 0.06)
-        dish.price = Math.max(1000, Math.round(dish.price * adjIncrease / 100) * 100)
-      }
-    }
-
-    // Determine which rotation dishes are active this month
-    const activeRotation = getActiveRotationForMonth(rotationDishes, weekDate.getFullYear(), weekDate.getMonth())
-    const availableDishes = [...coreDishes, ...activeRotation]
-    availableDishes.sort((a, b) => a.id - b.id)
-
-    const numOrders = randInt(20, 40)
-    const pctClients = 0.1 + RNG() * 0.3
-    const numClients = Math.max(5, Math.min(allClientIds.length, Math.floor(allClientIds.length * pctClients)))
-    const participatingClients = pick(allClientIds, numClients)
-
-    const orders = []
-    const orderItems = []
-    const productionLogs = []
-
-    for (let o = 0; o < numOrders; o++) {
-      const clientId = pickOne(participatingClients)
-      const numItems = randInt(1, 4)
-      const itemDishes = pick(availableDishes, numItems)
-      const status = isCurrent ? pickOne(['pending', 'confirmed']) : pickOne(STATUSES)
-
-      const notes = pickOne(NOTES_TEMPLATES)
-      const orderDay = new Date(weekStart)
-      const dayOffset = randInt(0, Math.min(5, isCurrent ? 5 : 6))
-      orderDay.setDate(orderDay.getDate() + dayOffset)
-      orderDay.setHours(randInt(10, 20), randInt(0, 59), randInt(0, 59))
-
-      const order = {
-        id: orderId++,
-        client_id: clientId,
-        week_id: week.id,
-        status,
-        notes,
-        has_delivery: RNG() > 0.5,
-        delivery_fee: RNG() > 0.5 ? (RNG() > 0.5 ? 500 : 700) : 0,
-        created_at: fmtDatetime(orderDay)
-      }
-      orders.push(order)
-
-      for (const dish of itemDishes) {
-        const qty = randInt(1, 3)
-        const unitCost = (dish.ingredients || []).reduce((sum, ing) => {
-          return sum + (allIngMap[ing.ingredientId]?.cost || 0) * ing.quantity
-        }, 0)
-        orderItems.push({ id: itemId++, order_id: order.id, dish_id: dish.id, quantity: qty, unit_price: dish.price, unit_cost: unitCost })
-      }
-    }
-
-    // Production: past weeks 90-110%, current 30-70%
-    for (const dish of availableDishes) {
-      const totalOrdered = orderItems
-        .filter(oi => oi.dish_id === dish.id)
-        .reduce((sum, oi) => sum + oi.quantity, 0)
-
-      if (totalOrdered > 0) {
-        if (isCurrent) {
-          const pct = 30 + randInt(0, 40)
-          const produced = Math.round(totalOrdered * pct / 100)
-          if (produced > 0) {
-            const prodDay = new Date(weekStart)
-            prodDay.setDate(prodDay.getDate() + randInt(4, Math.min(6, isCurrent ? 5 : 6)))
-            productionLogs.push({
-              id: prodId++,
-              week_id: week.id,
-              dish_id: dish.id,
-              quantity_produced: produced,
-              date_produced: fmtDate(prodDay)
-            })
-          }
-        } else {
-          const overPct = 90 + randInt(-10, 20)
-          const produced = Math.round(totalOrdered * overPct / 100)
-          if (produced > 0) {
-            const prodDay = new Date(weekStart)
-            prodDay.setDate(prodDay.getDate() + randInt(5, 6))
-            productionLogs.push({
-              id: prodId++,
-              week_id: week.id,
-              dish_id: dish.id,
-              quantity_produced: produced,
-              date_produced: fmtDate(prodDay)
-            })
-          }
-        }
-      }
-    }
-
-    weekData.push({ week, orders, orderItems, productionLogs, month: weekDate.getMonth(), year: weekDate.getFullYear() })
-  }
-
-  const allOrders = weekData.flatMap(wd => wd.orders)
-  const allOrderItems = weekData.flatMap(wd => wd.orderItems)
-  const allProductionLogs = weekData.flatMap(wd => wd.productionLogs)
-
-  return {
-    weeks,
-    dishes: allDishes,
-    clients,
-    ingredients,
-    orders: allOrders,
-    orderItems: allOrderItems,
-    productionLog: allProductionLogs,
-    deliverySettings: { defaultFee: 500 },
-    _nextId: prodId + itemId + orderId + weekId + allDishes.length + clients.length + allDishes.length + 2000
-  }
-}
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 
 function main() {
-  const ingredients = generateIngredients(0)
-  const allDishes = generateDishes(ingredients)
-  const clients = generateClients()
-  const data = generateWeeks(allDishes, clients, ingredients)
-
   const configDir = process.platform === 'win32'
     ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'piu')
     : process.env.XDG_CONFIG_HOME
       ? path.join(process.env.XDG_CONFIG_HOME, 'piu')
       : path.join(os.homedir(), '.config', 'piu')
-
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true })
-  }
-
+  fs.mkdirSync(configDir, { recursive: true })
   const filePath = path.join(configDir, 'piu.json')
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
 
-  const totalOrders = data.orders.length
-  const totalItems = data.orderItems.length
-  const activeWeeks = data.weeks.filter(w => {
-    const wo = data.orders.filter(o => o.week_id === w.id)
-    return wo.length > 0
-  })
-
-  const weekSummaries = activeWeeks.slice(0, 10).map(w => {
-    const wo = data.orders.filter(o => o.week_id === w.id)
-    const wc = new Set(wo.map(o => o.client_id)).size
-    return `  ${w.week_start} → ${w.week_end}${w.is_current ? ' (actual)' : ''}: ${wo.length} pedidos, ${wc} clientes`
-  })
-
-  // Inflation report
-  const inflTable = buildInflationTable(NOW)
-  const inflEntries = []
-  for (const [key, val] of inflTable) {
-    inflEntries.push({ key, val })
-  }
-  inflEntries.sort((a, b) => a.key.localeCompare(b.key))
-  const yearlyInflation = {}
-  for (const e of inflEntries) {
-    const y = e.key.split('-')[0]
-    if (!yearlyInflation[y]) yearlyInflation[y] = []
-    yearlyInflation[y].push(e.val)
+  let previousSettings = {}
+  if (fs.existsSync(filePath)) {
+    try { previousSettings = JSON.parse(fs.readFileSync(filePath, 'utf-8')).deliverySettings || {} } catch {}
+    const backupDir = path.join(configDir, 'backups')
+    fs.mkdirSync(backupDir, { recursive: true })
+    const stamp = fmtDatetime(NOW).replace(/[: ]/g, '-')
+    const backupPath = path.join(backupDir, `piu-antes-de-seed-${stamp}.json`)
+    fs.copyFileSync(filePath, backupPath)
+    console.log(`Respaldo de la base anterior: ${backupPath}`)
   }
 
-  const totalRevenue = data.orders.reduce((s, o) => s + (o.delivery_fee || 0), 0)
-  let dishRevenue = 0
-  for (const oi of data.orderItems) {
-    const dish = data.dishes.find(d => d.id === oi.dish_id)
-    if (dish) dishRevenue += (dish.price || 0) * oi.quantity
-  }
+  const { table: inflation, now: inflationNow } = buildInflation()
+  const factorAt = (d) => (inflation.get(monthKey(d)) ?? inflationNow) / inflationNow
 
-  console.log(`
-╔══════════════════════════════════════╗
-║        PIU - SEED COMPLETADO         ║
-╠══════════════════════════════════════╣
-║  Archivo: ${filePath}
-╠══════════════════════════════════════╣
-║  Ingredientes: ${String(ingredients.length).padStart(4)}
-║  Sub-productos: ${String(ingredients.filter(i => i.subIngredients?.length > 0).length).padStart(4)}
-║  Platos totales: ${String(allDishes.length).padStart(4)}
-║    Core: ${String(allDishes.filter(d => CORE_CATEGORIES.includes(d.category)).length).padStart(4)}
-║    Rotación: ${String(allDishes.filter(d => ROTATION_CATEGORIES.includes(d.category)).length).padStart(4)}
-║  Clientes:     ${String(clients.length).padStart(4)}
-║  Pedidos:      ${String(totalOrders).padStart(4)}
-║  Items:        ${String(totalItems).padStart(4)}
-║  Semanas activas: ${String(activeWeeks.length).padStart(4)}
-╠══════════════════════════════════════╣
-║  Revenue platos: $${dishRevenue.toLocaleString()}
-║  Delivery fees:  $${totalRevenue.toLocaleString()}
-╠══════════════════════════════════════╣
-║  Primeras 10 semanas:               ║`)
-  for (const s of weekSummaries) {
-    console.log(s)
-  }
-  console.log(`╠══════════════════════════════════════╣
-║  Costos de producción (ejemplos):   ║`)
-  const sampleDishes = allDishes.slice(0, 5)
-  for (const d of sampleDishes) {
-    let cost = 0
-    for (const item of d.ingredients) {
-      const ing = ingredients.find(i => i.id === item.ingredientId)
-      cost += (ing?.cost || 0) * item.quantity
+  const { ingredients, byName } = generateIngredients()
+  const byId = {}
+  for (const ing of ingredients) byId[ing.id] = ing
+  const ingNoise = {}
+  for (const ing of ingredients) ingNoise[ing.id] = 0.92 + RNG() * 0.16
+
+  const dishes = generateDishes(byName)
+  const core = dishes.filter(d => CORE_CATEGORIES.includes(d.category))
+  const rotation = dishes.filter(d => ROTATION_CATEGORIES.includes(d.category))
+  const clients = generateClients()
+
+  const weeks = []
+  const orders = []
+  const orderItems = []
+  const productionLog = []
+
+  const currentSunday = getSunday(NOW)
+  const repriceMonth = (d) => {
+    const f = factorAt(d)
+    for (const ing of ingredients) {
+      if (ing.subIngredients.length === 0) {
+        const jitter = 0.97 + RNG() * 0.06
+        ing.cost = Math.round((CURRENT_COST[ing.name] ?? ing.cost) * f * ingNoise[ing.id] * jitter * 100) / 100
+      }
     }
-    const margin = d.price > 0 ? ((d.price - cost) / d.price * 100) : 0
-    console.log(`  ${d.name}: costo $${cost.toFixed(2)} → precio $${d.price.toFixed(2)} (${margin.toFixed(0)}%)`)
+    for (const ing of ingredients) if (ing.subIngredients.length > 0) ing.cost = resolveCost(ing, byId)
   }
-
-  const topClientId = Object.entries(
-    data.orders.reduce((acc, o) => { acc[o.client_id] = (acc[o.client_id] || 0) + 1; return acc }, {})
-  ).sort((a, b) => b[1] - a[1])[0]
-  const topClient = data.clients.find(c => c.id === parseInt(topClientId?.[0]))
-
-  console.log(`╠══════════════════════════════════════╣`)
-  if (topClient) {
-    console.log(`║  Cliente top: ${(topClient.name + ' ' + topClient.last_name).padEnd(24)}║`)
-    console.log(`║  Pedidos del top: ${String(topClientId[1]).padStart(18)}║`)
+  const repriceDishes = (d) => {
+    const f = factorAt(d)
+    for (const dish of dishes) dish.price = Math.max(1000, Math.round(dish._currentPrice * f / 100) * 100)
   }
-  console.log(`╠══════════════════════════════════════╣
-║  Inflación anual (target: 25%):       ║`)
-  for (const [y, vals] of Object.entries(yearlyInflation)) {
-    // Annual rate = cumulative at Jan / cumulative at prev Jan
-    const currKey = `${y}-0`
-    const prevKey = `${parseInt(y) - 1}-0`
-    const currVal = inflTable.get(currKey)
-    const prevVal = inflTable.get(prevKey)
-    if (currVal && prevVal) {
-      const annual = (currVal / prevVal - 1) * 100
-      console.log(`  ${y}: ${annual.toFixed(1)}%`)
+  const dishCost = (dish) => dish.ingredients.reduce((s, i) => s + resolveCost(byId[i.ingredientId], byId) * i.quantity, 0)
+
+  let lastMonth = null
+  let lastDishUpdate = null
+  for (let ws = new Date(START); ws <= currentSunday; ws = addDays(ws, 7)) {
+    const isCurrent = fmtDate(ws) === fmtDate(currentSunday)
+    const week = { id: genId(), week_start: fmtDate(ws), week_end: fmtDate(addDays(ws, 6)), is_current: isCurrent }
+    weeks.push(week)
+
+    const mk = monthKey(ws)
+    if (mk !== lastMonth) {
+      lastMonth = mk
+      repriceMonth(ws)
+      if (!lastDishUpdate || (ws.getFullYear() * 12 + ws.getMonth()) - lastDishUpdate >= 2) {
+        lastDishUpdate = ws.getFullYear() * 12 + ws.getMonth()
+        repriceDishes(ws)
+      }
+    }
+
+    const month = ws.getMonth()
+    const available = [...core, ...rotationForMonth(rotation, ws.getFullYear(), month)]
+    const winter = month >= 4 && month <= 7
+    const dishWeights = available.map(d => {
+      if (d.category === 'Empanadas') return 3
+      if (d.category === 'Pizzas') return 2.5
+      if (d.category === 'Guisos') return winter ? 2.5 : 0.6
+      if (d.category === 'Extras') return winter ? 0.6 : 1.5
+      return 1.2
+    })
+    const fee = Math.max(300, Math.round(CURRENT_FEE * factorAt(ws) / 100) * 100)
+
+    const progress = (ws - START) / (currentSunday - START)
+    const seasonal = month === 0 || month === 1 ? 0.75 : month === 6 ? 0.85 : 1
+    const numOrders = Math.round((22 + progress * 18 + randInt(-4, 6)) * seasonal)
+    const activeClients = clients.filter(c => c._since <= addDays(ws, 6))
+    const usedThisWeek = new Set()
+    const weekOrders = []
+
+    for (let n = 0; n < numOrders && activeClients.length > 0; n++) {
+      let client = weightedPick(activeClients, activeClients.map(c => c._weight))
+      if (usedThisWeek.has(client.id) && RNG() < 0.85) continue
+      usedThisWeek.add(client.id)
+
+      const dayOffset = randInt(0, 5)
+      const created = addDays(ws, dayOffset)
+      created.setHours(dayOffset === 5 ? randInt(8, 11) : randInt(9, 21), randInt(0, 59), randInt(0, 59))
+      if (created > NOW) continue
+
+      const hasDelivery = !!client.address && RNG() < 0.6
+      const deliveryDay = hasDelivery ? weightedPick(['viernes', 'sabado', 'jueves'], [60, 35, 5]) : null
+      const order = {
+        id: genId(),
+        client_id: client.id,
+        week_id: week.id,
+        status: 'delivered',
+        notes: pickOne(ORDER_NOTES),
+        has_delivery: hasDelivery,
+        delivery_fee: hasDelivery ? fee : 0,
+        delivery_day: deliveryDay,
+        created_at: fmtDatetime(created)
+      }
+      const numItems = weightedPick([1, 2, 3, 4], [45, 35, 15, 5])
+      const chosen = new Set()
+      for (let k = 0; k < numItems; k++) {
+        const dish = weightedPick(available, dishWeights)
+        if (chosen.has(dish.id)) continue
+        chosen.add(dish.id)
+        orderItems.push({
+          id: genId(),
+          order_id: order.id,
+          dish_id: dish.id,
+          quantity: weightedPick([1, 2, 3, 4], [55, 30, 10, 5]),
+          unit_price: dish.price,
+          unit_cost: Math.round(dishCost(dish) * 100) / 100
+        })
+      }
+      weekOrders.push(order)
+      orders.push(order)
+    }
+
+    if (isCurrent) {
+      for (const o of weekOrders) {
+        const r = RNG()
+        o.status = r < 0.35 ? 'delivered' : r < 0.65 ? 'assembled' : 'pending'
+        if (o.status === 'delivered' && o.delivery_day === 'sabado') o.status = 'assembled'
+      }
+    }
+
+    const ordered = {}
+    const needed = {}
+    for (const o of weekOrders) {
+      for (const it of orderItems.filter(x => x.order_id === o.id)) {
+        ordered[it.dish_id] = (ordered[it.dish_id] || 0) + it.quantity
+        if (!isCurrent || o.status !== 'pending') needed[it.dish_id] = (needed[it.dish_id] || 0) + it.quantity
+        else needed[it.dish_id] = (needed[it.dish_id] || 0) + (RNG() < 0.4 ? it.quantity : 0)
+      }
+    }
+    for (const [dishIdStr, qty] of Object.entries(isCurrent ? needed : ordered)) {
+      const extra = !isCurrent && RNG() < 0.25 ? randInt(1, 3) : 0
+      let total = qty + extra
+      if (total <= 0) continue
+      const first = isCurrent ? Math.ceil(total / 2) : Math.ceil(total * 0.6)
+      const days = isCurrent ? [3, 4] : [4, 5]
+      for (const [idx, part] of [first, total - first].entries()) {
+        if (part <= 0) continue
+        const day = addDays(ws, days[idx])
+        if (day > NOW) continue
+        productionLog.push({ id: genId(), week_id: week.id, dish_id: Number(dishIdStr), quantity_produced: part, date_produced: fmtDate(day) })
+      }
     }
   }
 
-  const firstIngCosts = INGREDIENT_CATALOG.slice(0, 5).map(c => {
-    const ing = ingredients.find(i => i.name === c.name)
-    return ing ? ing.cost : 0
-  })
-  const baseFirstCosts = INGREDIENT_CATALOG.slice(0, 5).map(c => c.cost)
-  console.log(`╠══════════════════════════════════════╣
-║  Ej. inflación ingredientes (2022→hoy):║`)
-  INGREDIENT_CATALOG.slice(0, 5).forEach((c, idx) => {
-    const ing = ingredients.find(i => i.name === c.name)
-    if (ing) {
-      const factor = ing.cost / c.cost
-      console.log(`  ${c.name}: $${c.cost} → $${ing.cost.toFixed(2)} (×${factor.toFixed(2)})`)
+  const nextSunday = addDays(currentSunday, 7)
+  const nextWeek = { id: genId(), week_start: fmtDate(nextSunday), week_end: fmtDate(addDays(nextSunday, 6)), is_current: false }
+  weeks.push(nextWeek)
+  const nowMonthRotation = rotationForMonth(rotation, NOW.getFullYear(), NOW.getMonth())
+  const activeNow = [...core, ...nowMonthRotation]
+  for (let n = 0; n < 3; n++) {
+    const client = clients[randInt(0, clients.length - 1)]
+    const created = new Date(NOW)
+    created.setHours(Math.max(12, NOW.getHours() - n - 1), randInt(0, 59), 0)
+    const hasDelivery = !!client.address
+    const order = {
+      id: genId(), client_id: client.id, week_id: nextWeek.id, status: 'pending', notes: '',
+      has_delivery: hasDelivery, delivery_fee: hasDelivery ? CURRENT_FEE : 0, delivery_day: hasDelivery ? 'viernes' : null,
+      created_at: fmtDatetime(created)
     }
-  })
-  console.log(`╚══════════════════════════════════════╝`)
+    orders.push(order)
+    const dish = pickOne(activeNow)
+    orderItems.push({ id: genId(), order_id: order.id, dish_id: dish.id, quantity: randInt(1, 2), unit_price: dish.price, unit_cost: Math.round(dishCost(dish) * 100) / 100 })
+  }
+
+  repriceMonth(NOW)
+  repriceDishes(NOW)
+  const nowIds = new Set(activeNow.map(d => d.id))
+  for (const dish of dishes) {
+    dish.is_active = nowIds.has(dish.id)
+    const daysAgo = RNG() < 0.15 ? randInt(40, 80) : randInt(1, 25)
+    dish.last_price_review = addDays(NOW, -daysAgo).toISOString()
+    delete dish._currentPrice
+  }
+  for (const ing of ingredients) {
+    const stale = ing.subIngredients.length === 0 && RNG() < 0.12
+    ing.last_cost_update = addDays(NOW, -(stale ? randInt(35, 70) : randInt(0, 20))).toISOString()
+    if (PACKAGES[ing.name] && ing.subIngredients.length === 0) {
+      ing.package_qty = PACKAGES[ing.name]
+      ing.package_price = Math.round(ing.cost * PACKAGES[ing.name] * 0.95)
+      ing.cost = Math.round(ing.package_price / ing.package_qty * 10000) / 10000
+    }
+  }
+  for (const ing of ingredients) if (ing.subIngredients.length > 0) ing.cost = resolveCost(ing, byId)
+
+  for (const c of clients) { delete c._weight; delete c._since }
+
+  const deliverySettings = { defaultFee: CURRENT_FEE }
+  if (previousSettings.startLocation) deliverySettings.startLocation = previousSettings.startLocation
+
+  const data = { weeks, dishes, clients, orders, orderItems, productionLog, ingredients, deliverySettings, _nextId: nextId }
+  const tmp = filePath + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8')
+  fs.renameSync(tmp, filePath)
+
+  const revenue = orderItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+  const cost = orderItems.reduce((s, i) => s + i.unit_cost * i.quantity, 0)
+  const cur = weeks.find(w => w.is_current)
+  const curOrders = orders.filter(o => o.week_id === cur.id)
+  console.log(`Base generada en ${filePath}`)
+  console.log(`  Semanas: ${weeks.length} (${weeks[0].week_start} → ${weeks[weeks.length - 1].week_start})`)
+  console.log(`  Clientes: ${clients.length} | Ingredientes: ${ingredients.length} (${ingredients.filter(i => i.subIngredients.length).length} sub-productos) | Platos: ${dishes.length} (${dishes.filter(d => d.is_active).length} activos)`)
+  console.log(`  Pedidos: ${orders.length} | Ítems: ${orderItems.length} | Producción: ${productionLog.length} registros`)
+  console.log(`  Semana actual: ${curOrders.length} pedidos (${['pending', 'assembled', 'delivered'].map(s => `${s}: ${curOrders.filter(o => o.status === s).length}`).join(', ')})`)
+  console.log(`  Próxima semana: ${orders.filter(o => o.week_id === nextWeek.id).length} pedidos`)
+  console.log(`  Ingresos históricos (sin envíos): $${Math.round(revenue).toLocaleString('es-AR')} | margen ${(100 * (revenue - cost) / revenue).toFixed(1)}%`)
+  console.log(`  Punto de partida: ${deliverySettings.startLocation ? deliverySettings.startLocation.address : '(sin configurar)'}`)
+  console.log('  Platos actuales (precio / costo / margen):')
+  for (const d of dishes.filter(x => x.is_active)) {
+    const c = dishCost(d)
+    console.log(`    ${d.category.padEnd(10)} ${d.name.padEnd(30)} $${String(d.price).padStart(6)}  $${Math.round(c).toString().padStart(6)}  ${(100 * (d.price - c) / d.price).toFixed(0)}%`)
+  }
 }
 
 main()

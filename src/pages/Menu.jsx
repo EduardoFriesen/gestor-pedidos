@@ -18,7 +18,7 @@ export default function Menu() {
   const [form, setForm] = useState({
     name: '', category: '', price: '',
     ingredientRows: [{ ingredientId: null, quantity: 0, displayUnit: null }],
-    is_active: true, desiredMarkup: ''
+    is_active: true, desiredMarkup: '100'
   })
   const [error, setError] = useState(null)
   const [dishSort, setDishSort] = useState('name')
@@ -63,25 +63,26 @@ export default function Menu() {
 
   const openNew = () => {
     setEditing(null)
-    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true, desiredMarkup: '' })
+    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true, desiredMarkup: '100' })
     setShowModal(true)
   }
 
   const openEdit = (dish) => {
     setEditing(dish)
-    const rows = (dish.ingredients || []).length > 0
-      ? dish.ingredients.map(i => {
-          const ing = allIngredients.find(x => x.id === i.ingredientId)
-          return makeRow(i.ingredientId, i.quantity, ing?.unit || null)
-        })
-      : [makeRow()]
+    const rows = [
+      ...(dish.ingredients || []).map(i => {
+        const ing = allIngredients.find(x => x.id === i.ingredientId)
+        return makeRow(i.ingredientId, i.quantity, ing?.unit || null)
+      }),
+      makeRow()
+    ]
     setForm({
       name: dish.name,
       category: dish.category || '',
       price: dish.price?.toString() || '',
       ingredientRows: rows,
       is_active: !!dish.is_active,
-      desiredMarkup: ''
+      desiredMarkup: '100'
     })
     setShowModal(true)
   }
@@ -184,7 +185,7 @@ export default function Menu() {
 
   const handleContinueAdding = () => {
     setShowConfirmPopup(false)
-    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true })
+    setForm({ name: '', category: '', price: '', ingredientRows: [makeRow()], is_active: true, desiredMarkup: '100' })
     requestAnimationFrame(() => {
       if (firstInputRef.current) firstInputRef.current.focus()
     })

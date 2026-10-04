@@ -244,13 +244,14 @@ export function generarListaCompras(ingredients) {
 export const DAY_LABELS = { lunes: 'Lunes', martes: 'Martes', miercoles: 'Miércoles', jueves: 'Jueves', viernes: 'Viernes', sabado: 'Sábado', domingo: 'Domingo' }
 export const DAY_ORDER = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']
 
-export function generarHojaRuta(route, city, weekData, maps = null, stats = null) {
+export function generarHojaRuta(route, city, weekData, links = null, stats = null) {
   const doc = new jsPDF('p', 'mm', 'a4')
   const pageWidth = 210
   const margin = 15
   const colN = 10
   const colName = 45
-  const colAddr = 85
+  const colAddr = 78
+  const colTotal = 30
   const rowH = 8
   const headerH = 10
 
@@ -316,7 +317,8 @@ export function generarHojaRuta(route, city, weekData, maps = null, stats = null
     doc.text('#', cx, y + 6.5); cx += colN
     doc.text('Nombre', cx, y + 6.5); cx += colName
     doc.text('Dirección', cx, y + 6.5); cx += colAddr
-    doc.text('Monto', cx, y + 6.5)
+    doc.text('Monto', cx, y + 6.5); cx += colTotal
+    doc.text('Mapa', cx, y + 6.5)
 
     y += headerH
 
@@ -336,10 +338,16 @@ export function generarHojaRuta(route, city, weekData, maps = null, stats = null
       doc.text(String(i + 1), cx, y + 5.5); cx += colN
       const name = (order.client_name || '—').slice(0, 22)
       doc.text(name, cx, y + 5.5); cx += colName
-      const addr = ([order.client_address || order.address, order.client_locality].filter(Boolean).join(', ') || '—').slice(0, 35)
+      const addr = ([order.client_address || order.address, order.client_locality].filter(Boolean).join(', ') || '—').slice(0, 40)
       doc.text(addr, cx, y + 5.5); cx += colAddr
-      const total = typeof order.total === 'number' ? '$' + order.total.toFixed(2) : (order.total || '—')
-      doc.text(total, cx, y + 5.5)
+      const total = typeof order.total === 'number' ? '$' + order.total.toLocaleString('es-AR') : (order.total || '—')
+      doc.text(total, cx, y + 5.5); cx += colTotal
+      const link = links?.[day]?.find(l => l.orderId === order.id)
+      if (link) {
+        doc.setTextColor(37, 99, 235)
+        doc.textWithLink('Ir', cx, y + 5.5, { url: link.url })
+        doc.setTextColor(0, 0, 0)
+      }
 
       y += rowH
     })
@@ -349,28 +357,6 @@ export function generarHojaRuta(route, city, weekData, maps = null, stats = null
     doc.line(margin, y, pageWidth - margin, y)
     y += 6
 
-    const dayMaps = maps?.[day] || []
-    dayMaps.forEach((leg, i) => {
-      const qrSize = 30
-      if (y + qrSize + 4 > 297 - margin) {
-        doc.addPage()
-        y = margin
-      }
-      if (leg.qr) doc.addImage(leg.qr, 'PNG', margin, y, qrSize, qrSize)
-      const tx = margin + qrSize + 5
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(10)
-      const legLabel = dayMaps.length > 1 ? ` (tramo ${i + 1}/${dayMaps.length})` : ''
-      doc.text(`Recorrido en Google Maps${legLabel}`, tx, y + 8)
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      doc.text('Escanear con el celular para abrir el recorrido', tx, y + 14)
-      doc.setTextColor(37, 99, 235)
-      doc.textWithLink('Abrir en Google Maps', tx, y + 20, { url: leg.url })
-      doc.setTextColor(0, 0, 0)
-      y += qrSize + 4
-    })
-    if (dayMaps.length > 0) y += 2
   }
 
   return doc

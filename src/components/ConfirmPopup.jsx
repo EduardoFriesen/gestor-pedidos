@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useId } from 'react'
+import { pushModal, removeModal, isTopModal } from '../utils/modalStack'
 
 export default function ConfirmPopup({ isOpen, message, onConfirm, onCancel, confirmLabel }) {
   const confirmBtnRef = useRef(null)
+  const cancelBtnRef = useRef(null)
+  const stackId = useId()
   const [animState, setAnimState] = useState('closed')
   const prevOpen = useRef(isOpen)
 
@@ -19,8 +22,24 @@ export default function ConfirmPopup({ isOpen, message, onConfirm, onCancel, con
   }, [isOpen])
 
   const handleKeyDown = useCallback((e) => {
-    if (e.key === 'Escape') onCancel()
-  }, [onCancel])
+    if (!isTopModal(stackId) || e.defaultPrevented) return
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onCancel()
+      return
+    }
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.key)) {
+      e.preventDefault()
+      const next = document.activeElement === confirmBtnRef.current ? cancelBtnRef.current : confirmBtnRef.current
+      next?.focus()
+    }
+  }, [onCancel, stackId])
+
+  useEffect(() => {
+    if (animState === 'closed') return
+    pushModal(stackId)
+    return () => removeModal(stackId)
+  }, [animState === 'closed', stackId])
 
   useEffect(() => {
     if (animState !== 'open') return
@@ -95,6 +114,7 @@ export default function ConfirmPopup({ isOpen, message, onConfirm, onCancel, con
             {confirmLabel}
           </button>
           <button
+            ref={cancelBtnRef}
             className="btn btn-ghost"
             onClick={onCancel}
             style={{ minWidth: '80px', fontSize: 'var(--font-body)' }}

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-const RouteMap = forwardRef(function RouteMap({ startCoords, deliveryCoords, lines, onReady }, ref) {
+const RouteMap = forwardRef(function RouteMap({ startCoords, deliveryCoords, lines, onReady, height = 300, singleZoom = 13 }, ref) {
   const mapRef = useRef(null)
   const mapInstance = useRef(null)
 
@@ -66,7 +66,7 @@ const RouteMap = forwardRef(function RouteMap({ startCoords, deliveryCoords, lin
     if (lines) lines.forEach(line => line.points.forEach(p => allPoints.push(p)))
 
     if (allPoints.length === 1) {
-      map.setView(allPoints[0], 13)
+      map.setView(allPoints[0], singleZoom)
     } else if (allPoints.length > 0) {
       map.fitBounds(allPoints, { padding: [30, 30] })
     }
@@ -96,13 +96,13 @@ const RouteMap = forwardRef(function RouteMap({ startCoords, deliveryCoords, lin
   }, [startCoords, deliveryCoords, lines])
 
   if (!start && validCoords.length === 0) {
-    return <div style={{ width: '100%', height: '300px' }} />
+    return <div style={{ width: '100%', height: `${height}px` }} />
   }
 
   return (
     <div
       ref={mapRef}
-      style={{ width: '100%', height: '300px', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+      style={{ width: '100%', height: `${height}px`, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
     />
   )
 })

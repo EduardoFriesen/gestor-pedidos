@@ -93,6 +93,38 @@ Plan: `~/.claude/plans/quiero-que-las-localidades-binary-pebble.md`.
 - El test `testUndoRemovesAll` se reemplazó por `testUndoSubtractsOne`.
 - Verificado: test.js 160/160, E2E 85/85, 20 chequeos con Playwright sobre el mock.
 
+## 10. Datos de prueba (`seed.js` reescrito)
+- Genera desde 2024-01 hasta la semana siguiente a la actual.
+- Clientes: 150, todos en Córdoba capital, con localidad. Algunos son solo de retiro (sin dirección).
+- Precios: ingredientes y platos a valores de 2026, llevados hacia atrás con inflación mensual aproximada del INDEC.
+- Pedidos:
+  - los envíos tienen día y recargo; las semanas pasadas están todas entregadas;
+  - la semana actual tiene estados mezclados; la semana siguiente tiene 3 pedidos.
+- Producción coherente con los pedidos.
+- Ingredientes y platos:
+  - algunos ingredientes con precio viejo y algunos con paquete; 2 ingredientes inactivos;
+  - los platos de rotación del mes están activos y el resto inactivos.
+- Conserva `deliverySettings.startLocation`. Hace un respaldo en `userData/backups/piu-antes-de-seed-*.json` antes de escribir.
+
+## 11. Links de Google Maps por parada
+- Los links mandaban coordenadas de Nominatim. En Córdoba OSM casi no tiene alturas: devuelve el centro de la calle, y Google mostraba otra dirección.
+- Ahora `buildStopLinks(route)` arma un link por entrega con `destination=<dirección, localidad, país>`, sin origin. No hay límite de paradas.
+- PDF: se sacaron los QR y hay una columna "Mapa" con "Ir" enlazado.
+- Panel: lista numerada por día con un botón "Ir" por entrega, más "Copiar lista" y "WhatsApp" con todas las paradas y sus links.
+- Se desinstaló `qrcode`.
+
+## 12. Teclado en modales y mapa en el formulario de cliente
+- `src/utils/modalStack.js`: solo el modal de arriba responde al teclado. Antes, un Esc en "¿Cargar otro?" cerraba también el formulario de abajo.
+- `Modal.jsx`:
+  - Enter en un input o select hace click en el último `.form-actions .btn-primary` habilitado, o llama a la prop `onSubmit`. Ctrl+Enter funciona desde cualquier campo.
+  - Con el foco en un botón o checkbox, las flechas ←/→ se mueven entre hermanos y ↑/↓ por el modal. Se ignoran los eventos con `defaultPrevented`.
+  - El foco inicial va al primer campo, ya no al ✕.
+- `ConfirmPopup.jsx`: entra en la pila; Esc cancela; las flechas y Tab alternan Confirmar/No.
+- `WeekSelector` (Orders) ahora usa `<Modal>`.
+- Buscador de cliente del pedido: ↑/↓ resaltan, Enter elige (o abre "+ Nuevo cliente") y Esc cierra la lista si hay texto.
+- `ClientForm`: geocodifica la dirección un segundo después de tipear y muestra un mini-mapa (`RouteMap` con `height`/`singleZoom`), un aviso de altura aproximada o de dirección no encontrada, y "Ver en Google Maps".
+- Tests E2E de teclado en `runner.js`: 91/91.
+
 ## Convenciones
 - Sin comentarios en código salvo pedidos. Sin commits salvo pedido explícito. No asumir librerías externas (check package.json). Estilo existente (clases CSS con vars `--radius`, `--border`).
 - Skills instalados: impeccable, webapp-testing, frontend-design, infosec, code-reviewer, git-commit-writer, stop-slop, mcp-builder, skill-creator + superpowers (brainstorming, systematic-debugging, test-driven-development, writing-plans, etc.).

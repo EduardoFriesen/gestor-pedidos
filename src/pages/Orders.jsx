@@ -3,9 +3,8 @@ import Modal from '../components/Modal'
 import PdfViewer from '../components/PdfViewer'
 import ConfirmPopup from '../components/ConfirmPopup'
 import ClientForm from '../components/ClientForm'
-import QRCode from 'qrcode'
 import { generarEtiquetasDelivery, generarHojaRuta, DAY_LABELS, DAY_ORDER } from '../utils/pdf'
-import { buildRoute, buildMapsLinks } from '../utils/geocode'
+import { buildRoute, buildStopLinks } from '../utils/geocode'
 import { SkeletonOrderRow } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
 import { useToast } from '../components/ToastProvider'
@@ -17,6 +16,24 @@ function addDaysISO(str, days) {
   const [y, m, d] = str.split('-').map(Number)
   const dt = new Date(y, m - 1, d + days)
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+
+const WEEKDAY_KEYS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
+
+function defaultRouteDay(days) {
+  if (days.length === 0) return null
+  const today = WEEKDAY_KEYS[new Date().getDay()]
+  if (days.includes(today)) return today
+  const todayIdx = DAY_ORDER.indexOf(today)
+  return days.find(d => DAY_ORDER.indexOf(d) > todayIdx) || days[0]
+}
+
+function WhatsAppIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.64.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.21 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2.01-1.41.25-.69.25-1.29.17-1.41-.07-.12-.27-.2-.57-.35zM12.04 21.5h-.01a9.45 9.45 0 0 1-4.82-1.32l-.35-.21-3.58.94.96-3.49-.23-.36a9.43 9.43 0 0 1-1.45-5.03c0-5.22 4.25-9.47 9.48-9.47 2.53 0 4.91.99 6.7 2.78a9.4 9.4 0 0 1 2.77 6.7c0 5.22-4.25 9.46-9.47 9.46zm8.06-17.53A11.33 11.33 0 0 0 12.04.63C5.76.63.65 5.74.65 12.02c0 2.01.52 3.97 1.52 5.7L.55 23.63l6.04-1.59a11.37 11.37 0 0 0 5.44 1.39h.01c6.28 0 11.39-5.11 11.39-11.39 0-3.04-1.19-5.9-3.34-8.06z" />
+    </svg>
+  )
 }
 
 function parseQty(v) {
@@ -52,11 +69,13 @@ export default function Orders() {
   const [orderSearch, setOrderSearch] = useState('')
   const [routeLoading, setRouteLoading] = useState(false)
   const [routeView, setRouteView] = useState(null)
+  const [routeDay, setRouteDay] = useState(null)
   const [showUnpackedOnly, setShowUnpackedOnly] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [showNewClientModal, setShowNewClientModal] = useState(false)
   const [newClientSeed, setNewClientSeed] = useState(null)
   const [showClientDropdown, setShowClientDropdown] = useState(false)
+  const [clientHighlight, setClientHighlight] = useState(0)
   const [orderCounts, setOrderCounts] = useState(null)
   const [selectedWeekId, setSelectedWeekId] = useState(null)
   const [previousWeeks, setPreviousWeeks] = useState([])
@@ -400,24 +419,22 @@ export default function Orders() {
       }
       const { route, startCoords, city, stats } = await buildRoute(deliveryOrders)
       if (!startCoords) showToast('No se pudo obtener la ubicación del dispositivo', 'warning')
-      const links = buildMapsLinks(route, startCoords)
-      const maps = {}
-      for (const [day, urls] of Object.entries(links)) {
-        maps[day] = await Promise.all(urls.map(async url => ({
-          url,
-          qr: await QRCode.toDataURL(url, { margin: 1, width: 256 }).catch(() => null)
-        })))
+      const links = buildStopLinks(route)
+      const days = {}
+      for (const day of DAY_ORDER.filter(d => route[d]?.length > 0)) {
+        const deliveryCoords = route[day].map((o, i) => o._coords ? { ...o._coords, label: String(i + 1) } : null).filter(Boolean)
+        let line
+        if (stats?.[day]?.geometry?.length > 1) {
+          line = { points: stats[day].geometry, dashed: false }
+        } else {
+          const pts = route[day].filter(o => o._coords).map(o => [o._coords.lat, o._coords.lng])
+          line = { points: startCoords ? [[startCoords.lat, startCoords.lng], ...pts] : pts, dashed: true }
+        }
+        days[day] = { count: route[day].length, deliveryCoords, lines: line.points.length > 1 ? [line] : [] }
       }
-      const deliveryCoords = DAY_ORDER.filter(d => route[d]).flatMap(day =>
-        route[day].map((o, i) => o._coords ? { ...o._coords, label: String(i + 1) } : null).filter(Boolean)
-      )
-      const lines = DAY_ORDER.filter(d => route[d]).map(day => {
-        if (stats?.[day]?.geometry?.length > 1) return { points: stats[day].geometry, dashed: false }
-        const pts = route[day].filter(o => o._coords).map(o => [o._coords.lat, o._coords.lng])
-        return { points: startCoords ? [[startCoords.lat, startCoords.lng], ...pts] : pts, dashed: true }
-      }).filter(l => l.points.length > 1)
-      setRouteView({ maps: Object.keys(maps).length > 0 ? maps : null, startCoords, deliveryCoords, lines })
-      setPdfPreview(generarHojaRuta(route, city, weekData, maps, stats))
+      setRouteDay(defaultRouteDay(Object.keys(days)))
+      setRouteView({ route, links: Object.keys(links).length > 0 ? links : null, startCoords, days })
+      setPdfPreview(generarHojaRuta(route, city, weekData, links, stats))
     } catch (e) {
       setError('No se pudo generar la hoja de ruta.')
     } finally {
@@ -503,6 +520,42 @@ export default function Orders() {
       || (c.address || '').toLowerCase().includes(cq)
       || (c.notes || '').toLowerCase().includes(cq)
   )
+
+  const showNewClientOption = filteredClientOptions.length === 0 || !!clientSearch.trim()
+  const clientOptionCount = filteredClientOptions.length + (showNewClientOption ? 1 : 0)
+
+  const selectClient = (c) => {
+    setForm(f => ({ ...f, clientId: c.id }))
+    setClientSearch('')
+    setShowClientDropdown(false)
+  }
+
+  const handleClientSearchKeyDown = (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      setShowClientDropdown(true)
+      setClientHighlight(h => {
+        const next = e.key === 'ArrowDown' ? h + 1 : h - 1
+        return Math.max(0, Math.min(clientOptionCount - 1, next))
+      })
+      return
+    }
+    if (e.key === 'Enter' && showClientDropdown && clientOptionCount > 0) {
+      e.preventDefault()
+      const idx = Math.min(clientHighlight, clientOptionCount - 1)
+      if (idx < filteredClientOptions.length) selectClient(filteredClientOptions[idx])
+      else openNewClient()
+      return
+    }
+    if (e.key === 'Escape' && showClientDropdown && clientSearch.trim()) {
+      e.preventDefault()
+      setShowClientDropdown(false)
+    }
+  }
+
+  useEffect(() => {
+    document.querySelector('[data-client-option-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [clientHighlight])
 
   const openNewClient = () => {
     const [first, ...rest] = clientSearch.trim().split(/\s+/)
@@ -790,10 +843,14 @@ export default function Orders() {
                 onChange={e => {
                   setClientSearch(e.target.value)
                   setShowClientDropdown(true)
+                  setClientHighlight(0)
                 }}
+                onKeyDown={handleClientSearchKeyDown}
                 onFocus={() => { clearTimeout(blurTimeoutRef.current); setShowClientDropdown(true) }}
                 onBlur={() => { blurTimeoutRef.current = setTimeout(() => setShowClientDropdown(false), 200) }}
                 aria-label="Buscar cliente"
+                aria-expanded={showClientDropdown}
+                aria-autocomplete="list"
               />
               {showClientDropdown && (
                 <div style={{
@@ -820,34 +877,32 @@ export default function Orders() {
                         type="button"
                         className="btn btn-primary"
                         onClick={openNewClient}
-                        style={{ width: '220px', fontSize: 'var(--font-body)' }}
+                        data-client-option-active={clientHighlight === 0}
+                        style={{ width: '220px', fontSize: 'var(--font-body)', outline: clientHighlight === 0 ? '2px solid var(--primary)' : undefined, outlineOffset: '2px' }}
                       >
                         + Cliente
                       </button>
                     </div>
                   ) : (
-                    filteredClientOptions.map(c => (
+                    filteredClientOptions.map((c, i) => (
                       <button
                         key={c.id}
                         type="button"
+                        tabIndex={-1}
+                        data-client-option-active={clientHighlight === i}
                         style={{
                           display: 'block',
                           width: '100%',
                           textAlign: 'left',
                           padding: 'var(--spacing-sm)',
                           border: 'none',
-                          background: 'transparent',
+                          background: clientHighlight === i ? 'var(--bg-hover)' : 'transparent',
                           cursor: 'pointer',
                           fontSize: 'var(--font-body)',
                           fontWeight: parseInt(form.clientId) === c.id ? 700 : 400
                         }}
-                        onClick={() => {
-                          setForm(f => ({ ...f, clientId: c.id }))
-                          setClientSearch('')
-                          setShowClientDropdown(false)
-                        }}
-                        onMouseEnter={e => e.target.style.background = 'var(--bg-hover)'}
-                        onMouseLeave={e => e.target.style.background = 'transparent'}
+                        onClick={() => selectClient(c)}
+                        onMouseEnter={() => setClientHighlight(i)}
                       >
                         {c.name} {c.last_name} {c.phone ? `(${c.phone})` : ''}
                       </button>
@@ -856,9 +911,12 @@ export default function Orders() {
                   {filteredClientOptions.length > 0 && clientSearch.trim() && (
                     <button
                       type="button"
+                      tabIndex={-1}
                       className="btn btn-ghost btn-sm"
                       onClick={openNewClient}
-                      style={{ width: '100%', borderTop: '1px solid var(--border)', borderRadius: 0 }}
+                      data-client-option-active={clientHighlight === filteredClientOptions.length}
+                      onMouseEnter={() => setClientHighlight(filteredClientOptions.length)}
+                      style={{ width: '100%', borderTop: '1px solid var(--border)', borderRadius: 0, background: clientHighlight === filteredClientOptions.length ? 'var(--bg-hover)' : undefined }}
                     >
                       + Nuevo cliente "{clientSearch.trim()}"
                     </button>
@@ -1076,28 +1134,39 @@ export default function Orders() {
         <PdfViewer
           pdfDoc={pdfPreview}
           title={`${routeView ? 'hoja-ruta' : 'etiquetas'}-piu-${week?.week_start || 'semana'}`}
-          onClose={() => { setPdfPreview(null); setRouteView(null) }}
+          onClose={() => { setPdfPreview(null); setRouteView(null); setRouteDay(null) }}
         >
-          {routeView && (routeView.startCoords || routeView.deliveryCoords.length > 0) && (
+          {routeView && routeDay && routeView.days[routeDay] && (
             <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
-              <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Mapa de ruta</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-sm)', flexWrap: 'wrap', marginBottom: 'var(--spacing-sm)' }}>
+                <h3 style={{ margin: 0 }}>Mapa de ruta</h3>
+                {Object.keys(routeView.days).length > 1 && (
+                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)', flexWrap: 'wrap' }} role="group" aria-label="Día del recorrido">
+                    {Object.entries(routeView.days).map(([day, info]) => (
+                      <button
+                        key={day}
+                        className={`btn btn-sm ${routeDay === day ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => setRouteDay(day)}
+                        aria-pressed={routeDay === day}
+                      >
+                        {DAY_LABELS[day] || day} ({info.count})
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Suspense fallback={<div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Cargando mapa…</div>}>
-                <RouteMap startCoords={routeView.startCoords} deliveryCoords={routeView.deliveryCoords} lines={routeView.lines} />
+                <RouteMap
+                  key={routeDay}
+                  startCoords={routeView.startCoords}
+                  deliveryCoords={routeView.days[routeDay].deliveryCoords}
+                  lines={routeView.days[routeDay].lines}
+                />
               </Suspense>
             </div>
           )}
-          {routeView?.maps && (
-            <RouteLinksPanel
-              links={routeView.maps}
-              onCopy={async (url) => {
-                try {
-                  await navigator.clipboard.writeText(url)
-                  showToast('Link copiado', 'success')
-                } catch {
-                  showToast('No se pudo copiar el link', 'error')
-                }
-              }}
-            />
+          {routeView?.links && (
+            <RouteLinksPanel route={routeView.route} links={routeView.links} />
           )}
         </PdfViewer>
       )}
@@ -1106,28 +1175,54 @@ export default function Orders() {
   )
 }
 
-function RouteLinksPanel({ links, onCopy }) {
-  const rows = DAY_ORDER.filter(d => links[d]).flatMap(day =>
-    links[day].map((leg, i) => ({
-      key: `${day}-${i}`,
-      label: (DAY_LABELS[day] || day) + (links[day].length > 1 ? ` (tramo ${i + 1}/${links[day].length})` : ''),
-      url: leg.url
-    }))
-  )
+function RouteLinksPanel({ route, links }) {
+  const days = DAY_ORDER.filter(d => links[d] && route[d])
+  const stopsFor = (day) => route[day].map((order, i) => ({
+    n: i + 1,
+    order,
+    address: [order.client_address || order.address, order.client_locality].filter(Boolean).join(', '),
+    url: links[day].find(l => l.orderId === order.id)?.url || null
+  }))
+  const dayText = (day) => [
+    `Entregas ${DAY_LABELS[day] || day}:`,
+    ...stopsFor(day).map(s => `${s.n}. ${s.order.client_name}${s.order.client_phone ? ` (${s.order.client_phone})` : ''} — ${s.address || 'sin dirección'}${s.url ? `\n${s.url}` : ''}`)
+  ].join('\n\n')
   return (
     <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
-      <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Recorrido en Google Maps</h3>
-      {rows.map(row => (
-        <div key={row.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', flexWrap: 'wrap', padding: 'var(--spacing-xs) 0' }}>
-          <span style={{ flex: 1, minWidth: 120, fontWeight: 600 }}>{row.label}</span>
-          <button className="btn btn-ghost" onClick={() => window.open(row.url, '_blank')}>Abrir</button>
-          <button className="btn btn-ghost" onClick={() => onCopy(row.url)}>Copiar</button>
-          <button
-            className="btn btn-ghost"
-            onClick={() => window.open('https://wa.me/?text=' + encodeURIComponent(`Recorrido ${row.label}: ${row.url}`), '_blank')}
-          >
-            WhatsApp
-          </button>
+      <h3 style={{ marginBottom: 'var(--spacing-sm)' }}>Entregas en Google Maps</h3>
+      {days.map(day => (
+        <div key={day} style={{ marginBottom: 'var(--spacing-md)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', flexWrap: 'wrap', marginBottom: 'var(--spacing-xs)' }}>
+            <span style={{ flex: 1, minWidth: 120, fontWeight: 700 }}>{DAY_LABELS[day] || day} · {route[day].length} entrega{route[day].length !== 1 ? 's' : ''}</span>
+            <button
+              className="btn btn-sm"
+              onClick={() => window.open('https://wa.me/?text=' + encodeURIComponent(dayText(day)), '_blank')}
+              style={{ background: '#25D366', color: '#fff', border: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <WhatsAppIcon />
+              WhatsApp
+            </button>
+          </div>
+          {stopsFor(day).map(stop => (
+            <div key={stop.order.id} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--spacing-sm)',
+              padding: 'var(--spacing-xs) 0',
+              borderTop: '1px solid var(--border)'
+            }}>
+              <span style={{ width: '2em', textAlign: 'right', fontWeight: 700, color: 'var(--text-secondary)' }}>{stop.n}.</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <strong>{stop.order.client_name}</strong>
+                <span style={{ color: 'var(--text-secondary)' }}> — {stop.address || 'sin dirección'}</span>
+              </span>
+              {stop.url && (
+                <button className="btn btn-outline btn-sm" onClick={() => window.open(stop.url, '_blank')} aria-label={`Ir a ${stop.order.client_name}`}>
+                  Ir
+                </button>
+              )}
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -1135,27 +1230,20 @@ function RouteLinksPanel({ links, onCopy }) {
 }
 
 function WeekSelector({ open, onChoice, currentStart, nextStart }) {
-  if (!open) return null
-
   return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onChoice('cancel') }}>
-      <div className="modal-content" style={{ maxWidth: '500px' }}>
-        <div className="modal-header">
-          <h2>Fuera del horario de pedidos</h2>
-        </div>
-        <p style={{ marginBottom: 'var(--spacing-lg)', fontSize: 'var(--font-body)' }}>
-          Los pedidos se cierran los viernes a las 12:00. ¿A qué semana querés agregar este pedido?
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-          <button className="btn btn-primary btn-lg" onClick={() => onChoice('current')}>
-            Semana actual ({currentStart})
-          </button>
-          <button className="btn btn-outline btn-lg" onClick={() => onChoice('next')}>
-            Semana siguiente ({nextStart})
-          </button>
-          <button className="btn btn-ghost" onClick={() => onChoice('cancel')}>Cancelar</button>
-        </div>
+    <Modal isOpen={open} onClose={() => onChoice('cancel')} title="Fuera del horario de pedidos">
+      <p style={{ marginBottom: 'var(--spacing-lg)', fontSize: 'var(--font-body)' }}>
+        Los pedidos se cierran los viernes a las 12:00. ¿A qué semana querés agregar este pedido?
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+        <button className="btn btn-primary btn-lg" onClick={() => onChoice('current')}>
+          Semana actual ({currentStart ? formatWeekRange(currentStart) : ''})
+        </button>
+        <button className="btn btn-outline btn-lg" onClick={() => onChoice('next')}>
+          Semana siguiente ({nextStart ? formatWeekRange(nextStart) : ''})
+        </button>
+        <button className="btn btn-ghost" onClick={() => onChoice('cancel')}>Cancelar</button>
       </div>
-    </div>
+    </Modal>
   )
 }

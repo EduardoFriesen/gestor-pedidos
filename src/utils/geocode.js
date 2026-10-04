@@ -143,6 +143,7 @@ export async function buildRoute(orders) {
   const deviceLoc = await getDeviceLocation()
   const startCoords = deviceLoc?.coords ?? null
   const city = deviceLoc?.city ?? null
+  const country = countryName(deviceLoc?.countryCode)
   const results = []
 
   for (const order of orders) {
@@ -151,6 +152,7 @@ export async function buildRoute(orders) {
     const locality = order.client_locality || order.locality || city
     const geoAddr = addr ? [addr, locality].filter(Boolean).join(', ') : ''
     order._geoQuery = geoAddr
+    order._mapsQuery = geoAddr ? [geoAddr, country].filter(Boolean).join(', ') : ''
     const coords = geoAddr ? await geocodeAddress(geoAddr, startCoords, deviceLoc?.countryCode) : null
     if (coords && startCoords) {
       order._distance = getDistance(startCoords.lat, startCoords.lng, coords.lat, coords.lng)
@@ -290,34 +292,31 @@ export async function optimizeStops(start, stops, { osrmUrl = OSRM_TRIP_URL } = 
   return { order, distance: pathLength(start, stops, order), duration: null, geometry: null, method: 'recta' }
 }
 
-const MAPS_MAX_WAYPOINTS = 9
+function countryName(code) {
+  if (!code) return null
+  try {
+    return new Intl.DisplayNames(['es'], { type: 'region' }).of(code.toUpperCase()) || null
+  } catch {
+    return null
+  }
+}
 
-function mapsStop(order) {
+function stopDestination(order) {
+  if (order._mapsQuery) return order._mapsQuery
   if (order._coords) return `${order._coords.lat},${order._coords.lng}`
   return order._geoQuery || null
 }
 
-function mapsDirUrl(origin, stops) {
-  const params = new URLSearchParams({ api: '1', travelmode: 'driving' })
-  if (origin) params.set('origin', origin)
-  params.set('destination', stops[stops.length - 1])
-  if (stops.length > 1) params.set('waypoints', stops.slice(0, -1).join('|'))
-  return `https://www.google.com/maps/dir/?${params.toString()}`
-}
-
-export function buildMapsLinks(route, startCoords) {
+export function buildStopLinks(route) {
   const links = {}
   for (const [day, orders] of Object.entries(route || {})) {
-    const stops = orders.map(mapsStop).filter(Boolean)
-    if (stops.length === 0) continue
-    const urls = []
-    let origin = startCoords ? `${startCoords.lat},${startCoords.lng}` : null
-    for (let i = 0; i < stops.length; i += MAPS_MAX_WAYPOINTS + 1) {
-      const chunk = stops.slice(i, i + MAPS_MAX_WAYPOINTS + 1)
-      urls.push(mapsDirUrl(origin, chunk))
-      origin = chunk[chunk.length - 1]
-    }
-    links[day] = urls
+    const stops = orders.map(order => {
+      const destination = stopDestination(order)
+      if (!destination) return null
+      const params = new URLSearchParams({ api: '1', destination, travelmode: 'driving' })
+      return { orderId: order.id, url: `https://www.google.com/maps/dir/?${params.toString()}` }
+    }).filter(Boolean)
+    if (stops.length > 0) links[day] = stops
   }
   return links
 }

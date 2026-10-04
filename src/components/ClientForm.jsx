@@ -1,5 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { getDeviceLocation } from '../utils/geocode'
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
+import { getDeviceLocation, geocodeAddress } from '../utils/geocode'
+
+const RouteMap = lazy(() => import('./RouteMap'))
+
+function countryName(code) {
+  if (!code) return null
+  try {
+    return new Intl.DisplayNames(['es'], { type: 'region' }).of(code.toUpperCase()) || null
+  } catch {
+    return null
+  }
+}
 
 const EMPTY = { name: '', last_name: '', phone: '', address: '', locality: '', notes: '' }
 
@@ -27,7 +38,10 @@ export function findDuplicateClient(clients, data, excludeId = null) {
 
 export default function ClientForm({ initial = null, clients = [], excludeId = null, onSubmit, onCancel, submitLabel = 'Crear cliente' }) {
   const [form, setForm] = useState({ ...EMPTY, ...(initial || {}) })
-  const [producerCity, setProducerCity] = useState(null)
+  const [producerLoc, setProducerLoc] = useState(null)
+  const producerCity = producerLoc?.city || null
+  const [geo, setGeo] = useState({ status: 'idle', result: null })
+  const geoRequestRef = useRef(0)
   const [saving, setSaving] = useState(false)
   const [duplicate, setDuplicate] = useState(null)
   const firstInputRef = useRef(null)
@@ -35,11 +49,37 @@ export default function ClientForm({ initial = null, clients = [], excludeId = n
   useEffect(() => {
     let cancelled = false
     getDeviceLocation().then(loc => {
-      if (!cancelled && loc?.city) setProducerCity(loc.city)
-    }).catch(() => {})
+      if (!cancelled) setProducerLoc(loc || {})
+    }).catch(() => { if (!cancelled) setProducerLoc({}) })
     requestAnimationFrame(() => firstInputRef.current?.focus())
     return () => { cancelled = true }
   }, [])
+
+  const geoQuery = [form.address.trim(), form.locality.trim() || producerCity].filter(Boolean).join(', ')
+
+  useEffect(() => {
+    const requestId = ++geoRequestRef.current
+    if (!form.address.trim() || producerLoc === null) {
+      setGeo({ status: 'idle', result: null })
+      return
+    }
+    setGeo(g => ({ status: 'searching', result: g.result }))
+    const timer = setTimeout(async () => {
+      const result = await geocodeAddress(geoQuery, producerLoc?.coords || null, producerLoc?.countryCode || null).catch(() => null)
+      if (requestId !== geoRequestRef.current) return
+      setGeo(result ? { status: 'found', result } : { status: 'notfound', result: null })
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [geoQuery, producerLoc])
+
+  const markers = useMemo(
+    () => geo.result ? [{ lat: geo.result.lat, lng: geo.result.lng, label: '•' }] : [],
+    [geo.result?.lat, geo.result?.lng]
+  )
+
+  const googleMapsUrl = form.address.trim()
+    ? `https://www.google.com/maps/search/?${new URLSearchParams({ api: '1', query: [geoQuery, countryName(producerLoc?.countryCode)].filter(Boolean).join(', ') }).toString()}`
+    : null
 
   const set = (field) => (e) => {
     setForm(f => ({ ...f, [field]: e.target.value }))
@@ -108,6 +148,33 @@ export default function ClientForm({ initial = null, clients = [], excludeId = n
           placeholder={producerCity ? `Si se deja vacío: ${producerCity}` : 'Ej: Córdoba'}
         />
       </div>
+
+      {form.address.trim() && (
+        <div className="form-group" aria-live="polite">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-sm)', flexWrap: 'wrap', marginBottom: 'var(--spacing-xs)' }}>
+            <span style={{ fontSize: 'var(--font-sm)', color: geo.status === 'notfound' ? 'var(--danger)' : 'var(--text-secondary)' }}>
+              {geo.status === 'searching' && 'Buscando en el mapa…'}
+              {geo.status === 'found' && `Ubicación encontrada: ${geo.result.label || `${geo.result.lat.toFixed(5)}, ${geo.result.lng.toFixed(5)}`}`}
+              {geo.status === 'notfound' && 'No se encontró la dirección. Revisá calle y número.'}
+            </span>
+            {googleMapsUrl && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => window.open(googleMapsUrl, '_blank')}>
+                Ver en Google Maps
+              </button>
+            )}
+          </div>
+          {geo.status === 'found' && !geo.result.exact && (
+            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--warning)', marginBottom: 'var(--spacing-xs)' }}>
+              No se encontró la altura exacta; el punto marca la calle.
+            </p>
+          )}
+          {geo.result && (
+            <Suspense fallback={<div style={{ height: '200px' }} />}>
+              <RouteMap key={`${geo.result.lat},${geo.result.lng}`} deliveryCoords={markers} height={200} singleZoom={16} />
+            </Suspense>
+          )}
+        </div>
+      )}
 
       <div className="form-group">
         <label htmlFor="client-notes">Notas</label>
