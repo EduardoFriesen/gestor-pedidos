@@ -136,3 +136,14 @@ Plan: `~/.claude/plans/quiero-que-las-localidades-binary-pebble.md`.
 ## Siguiente paso sugerido
 1. ~~Verificación E2E visual del fix del mapa~~ (hecho).
 2. Cuando el usuario lo pida: commit (mensaje conventional, skill git-commit-writer).
+
+### Cache de la Hoja de Ruta (2026-10-05, sin commitear)
+- `store.getRouteCache(weekId)` / `setRouteCache(weekId, cache)` guardan en `piu.json` (`data.routeCache`, una sola entrada para la semana actual) las coordenadas, el orden de paradas y los stats de OSRM. Están en las 4 capas: store, main, preload y mock.
+- `src/utils/routeCache.js`: `routeCacheKey` (pedidos con envío: id, dirección, localidad y día, más el punto de partida guardado), `serializeRoute` y `restoreRoute`.
+- `Orders.jsx` › `generateRoutePdf(force)`: si la clave coincide, rearma la ruta con datos frescos de los pedidos sin geocodificar. El botón "Recalcular ruta" en el visor la fuerza.
+- Tests: `testRouteCache` y `testRouteCacheHelpers` (test.js), y E2E "ROUTE: hoja de ruta se reusa…".
+- Verificado en Electron con una copia de los datos reales (6 envíos): primera vez ~8 s, reabrir ~0,4 s, tras reiniciar ~0,7 s, tras cambiar el pago 0 geocodificaciones, tras editar una dirección recalcula.
+- `npm audit fix` (compatible) bajó las vulnerabilidades de 22 a 7. Quedan las que requieren major: electron y extract-zip (alta, v44) y react-router (moderada, v7).
+- xlsx 0.18.5 → 0.20.3 instalado desde el tarball oficial `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` (SheetJS ya no publica en npm). El hash de integridad queda fijado en el lockfile. npm audit no lo revisa: las próximas actualizaciones son manuales (ver cdn.sheetjs.com). El backup XLSX con datos reales sale igual celda por celda.
+- jsPDF 2.5.2 → 4.2.1 (resuelve la crítica y dompurify). Los PDFs de producción, compras y ruta salen idénticos a v2; el de etiquetas, idéntico píxel a píxel a 200 dpi (v4 incrusta el logo sin canal alfa, pero sus píxeles transparentes son blancos). `addImage` del logo ahora declara `'PNG'` en vez de `'JPEG'`.
+- gitleaks 8.30.1: historial limpio; los hallazgos en `release/` (ignorado por git) son falsos positivos de binarios.
