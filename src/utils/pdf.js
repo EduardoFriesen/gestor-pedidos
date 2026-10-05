@@ -34,7 +34,7 @@ export function generarEtiquetasDelivery(orders) {
     const iy = y + (h - ih) / 2
 
     doc.setGState(new GState({ opacity: LOGO_OPACITY }))
-    doc.addImage(etiquetaImg, 'JPEG', ix, iy, iw, ih, 'logo')
+    doc.addImage(etiquetaImg, 'PNG', ix, iy, iw, ih, 'logo')
     doc.setGState(new GState({ opacity: 1 }))
 
     doc.setDrawColor(180)
