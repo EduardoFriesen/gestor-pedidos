@@ -5,6 +5,7 @@ import ConfirmPopup from '../components/ConfirmPopup'
 import ClientForm from '../components/ClientForm'
 import { generarEtiquetasDelivery, generarHojaRuta, DAY_LABELS, DAY_ORDER } from '../utils/pdf'
 import { buildRoute, buildStopLinks } from '../utils/geocode'
+import { routeCacheKey, serializeRoute, restoreRoute } from '../utils/routeCache'
 import { SkeletonOrderRow } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
 import { useToast } from '../components/ToastProvider'
@@ -420,15 +421,34 @@ export default function Orders() {
     }
   }
 
-  const handlePrintRoute = async () => {
+  const handlePrintRoute = async (force = false) => {
     try {
-      await generateRoutePdf()
+      await generateRoutePdf(force)
     } catch (e) {
       setError('No se pudo generar la hoja de ruta.')
     }
   }
 
-  const generateRoutePdf = async () => {
+  const showRoute = ({ route, startCoords, city, stats }, weekData) => {
+    const links = buildStopLinks(route)
+    const days = {}
+    for (const day of DAY_ORDER.filter(d => route[d]?.length > 0)) {
+      const deliveryCoords = route[day].map((o, i) => o._coords ? { ...o._coords, label: String(i + 1) } : null).filter(Boolean)
+      let line
+      if (stats?.[day]?.geometry?.length > 1) {
+        line = { points: stats[day].geometry, dashed: false }
+      } else {
+        const pts = route[day].filter(o => o._coords).map(o => [o._coords.lat, o._coords.lng])
+        line = { points: startCoords ? [[startCoords.lat, startCoords.lng], ...pts] : pts, dashed: true }
+      }
+      days[day] = { count: route[day].length, deliveryCoords, lines: line.points.length > 1 ? [line] : [] }
+    }
+    setRouteDay(defaultRouteDay(Object.keys(days)))
+    setRouteView({ route, links: Object.keys(links).length > 0 ? links : null, startCoords, days })
+    setPdfPreview(generarHojaRuta(route, city, weekData, links, stats))
+  }
+
+  const generateRoutePdf = async (force = false) => {
     setRouteLoading(true)
     try {
       const weekData = await window.piu?.getCurrentWeek()
@@ -443,24 +463,17 @@ export default function Orders() {
         showToast('No hay pedidos con envío.', 'info')
         return setRouteLoading(false)
       }
-      const { route, startCoords, city, stats } = await buildRoute(deliveryOrders)
-      if (!startCoords) showToast('No se pudo obtener la ubicación del dispositivo', 'warning')
-      const links = buildStopLinks(route)
-      const days = {}
-      for (const day of DAY_ORDER.filter(d => route[d]?.length > 0)) {
-        const deliveryCoords = route[day].map((o, i) => o._coords ? { ...o._coords, label: String(i + 1) } : null).filter(Boolean)
-        let line
-        if (stats?.[day]?.geometry?.length > 1) {
-          line = { points: stats[day].geometry, dashed: false }
-        } else {
-          const pts = route[day].filter(o => o._coords).map(o => [o._coords.lat, o._coords.lng])
-          line = { points: startCoords ? [[startCoords.lat, startCoords.lng], ...pts] : pts, dashed: true }
-        }
-        days[day] = { count: route[day].length, deliveryCoords, lines: line.points.length > 1 ? [line] : [] }
+      const startLoc = await window.piu?.getStartLocation?.()
+      const key = routeCacheKey(deliveryOrders, startLoc)
+      if (!force) {
+        const cache = await window.piu?.getRouteCache?.(weekData.id)
+        const cached = cache?.key === key ? restoreRoute(cache, deliveryOrders) : null
+        if (cached) return showRoute(cached, weekData)
       }
-      setRouteDay(defaultRouteDay(Object.keys(days)))
-      setRouteView({ route, links: Object.keys(links).length > 0 ? links : null, startCoords, days })
-      setPdfPreview(generarHojaRuta(route, city, weekData, links, stats))
+      const built = await buildRoute(deliveryOrders)
+      if (!built.startCoords) showToast('No se pudo obtener la ubicación del dispositivo', 'warning')
+      await window.piu?.setRouteCache?.(weekData.id, { key, ...serializeRoute(built) })
+      showRoute(built, weekData)
     } catch (e) {
       setError('No se pudo generar la hoja de ruta.')
     } finally {
@@ -642,7 +655,7 @@ export default function Orders() {
           <button className="btn btn-outline btn-sm" onClick={handlePrintLabelsView} disabled={isOtherWeek}>
             Etiquetas
           </button>
-          <button className="btn btn-outline btn-sm" onClick={handlePrintRoute} disabled={isOtherWeek || routeLoading}>
+          <button className="btn btn-outline btn-sm" onClick={() => handlePrintRoute()} disabled={isOtherWeek || routeLoading}>
             {routeLoading ? 'Generando...' : 'Hoja de Ruta'}
           </button>
           <button className="btn btn-primary" onClick={openNew} disabled={isOtherWeek} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
@@ -1183,7 +1196,17 @@ export default function Orders() {
           {routeView && routeDay && routeView.days[routeDay] && (
             <div className="card" style={{ marginBottom: 'var(--spacing-md)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--spacing-sm)', flexWrap: 'wrap', marginBottom: 'var(--spacing-sm)' }}>
-                <h3 style={{ margin: 0 }}>Mapa de ruta</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                  <h3 style={{ margin: 0 }}>Mapa de ruta</h3>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => handlePrintRoute(true)}
+                    disabled={routeLoading}
+                    title="Volver a geocodificar y optimizar la ruta"
+                  >
+                    {routeLoading ? 'Recalculando…' : 'Recalcular ruta'}
+                  </button>
+                </div>
                 {Object.keys(routeView.days).length > 1 && (
                   <div style={{ display: 'flex', gap: 'var(--spacing-xs)', flexWrap: 'wrap' }} role="group" aria-label="Día del recorrido">
                     {Object.entries(routeView.days).map(([day, info]) => (

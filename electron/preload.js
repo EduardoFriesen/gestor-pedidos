@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('piu', {
   setDefaultDeliveryFee: (fee) => ipcRenderer.invoke('piu:setDefaultDeliveryFee', { fee }),
   getStartLocation: () => ipcRenderer.invoke('piu:getStartLocation'),
   setStartLocation: (loc) => ipcRenderer.invoke('piu:setStartLocation', { loc }),
+  getRouteCache: (weekId) => ipcRenderer.invoke('piu:getRouteCache', { weekId }),
+  setRouteCache: (weekId, cache) => ipcRenderer.invoke('piu:setRouteCache', { weekId, cache }),
   getPriceReview: (threshold) => ipcRenderer.invoke('piu:getPriceReview', threshold),
   markIngredientUpdated: (id) => ipcRenderer.invoke('piu:markIngredientUpdated', { id }),
   markDishPriceUpdated: (id) => ipcRenderer.invoke('piu:markDishPriceUpdated', { id }),

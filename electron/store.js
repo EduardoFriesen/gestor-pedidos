@@ -1601,6 +1601,30 @@ function setStartLocation(loc) {
   return { success: true }
 }
 
+function getRouteCache(weekId) {
+  const cache = data.routeCache
+  return cache && cache.weekId === weekId ? cache : null
+}
+
+function setRouteCache(weekId, cache) {
+  const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
+  if (!isObject(cache) || typeof cache.key !== 'string' || !isObject(cache.days) || !isObject(cache.stops) ||
+      !Object.values(cache.days).every(Array.isArray)) {
+    return { success: false, reason: 'invalid_cache' }
+  }
+  data.routeCache = {
+    weekId,
+    key: cache.key,
+    days: cache.days,
+    stops: cache.stops,
+    startCoords: cache.startCoords || null,
+    city: cache.city || null,
+    stats: isObject(cache.stats) ? cache.stats : {}
+  }
+  save()
+  return { success: true }
+}
+
 function getWeekOrderCounts() {
   const week = getCurrentWeek()
   const counts = { pending: 0, confirmed: 0, assembled: 0, delivered: 0, total: 0 }
@@ -1800,6 +1824,8 @@ module.exports = {
   setDefaultDeliveryFee,
   getStartLocation,
   setStartLocation,
+  getRouteCache,
+  setRouteCache,
   getPriceReview,
   getExportData,
   importData,

@@ -533,6 +533,14 @@
       else DATA.deliverySettings.startLocation = { ...loc }
       return Promise.resolve({ success: true })
     },
+    getRouteCache(weekId) {
+      const c = DATA.routeCache
+      return Promise.resolve(c && c.weekId === weekId ? JSON.parse(JSON.stringify(c)) : null)
+    },
+    setRouteCache(weekId, cache) {
+      DATA.routeCache = JSON.parse(JSON.stringify({ ...cache, weekId }))
+      return Promise.resolve({ success: true })
+    },
 
     getAnalytics() { return this.getAnalyticsFiltered(null, null) },
 

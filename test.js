@@ -716,6 +716,69 @@ function testStartLocation(store) {
   store.setDefaultDeliveryFee(500)
 }
 
+function testRouteCache(store) {
+  log('\n--- testRouteCache ---')
+  assert(store.getRouteCache(1) === null, 'Route cache defaults to null')
+  const cache = {
+    key: 'k1',
+    days: { viernes: [10, 11] },
+    stops: { 10: { _coords: { lat: -31.4, lng: -64.2 }, _distance: 1.2, _geoQuery: 'a', _mapsQuery: 'a, Argentina' }, 11: { _coords: null, _distance: null, _geoQuery: '', _mapsQuery: '' } },
+    startCoords: { lat: -31.41, lng: -64.19 },
+    city: 'Córdoba',
+    stats: { viernes: { distance: 5000, duration: 600, geometry: [[-31.4, -64.2], [-31.5, -64.3]], method: 'osrm' } }
+  }
+  const r = store.setRouteCache(1, cache)
+  assert(r.success === true, 'setRouteCache succeeds with valid shape', JSON.stringify(r))
+  const got = store.getRouteCache(1)
+  assert(got && got.key === 'k1' && got.days.viernes[1] === 11 && got.stops[10]._coords.lat === -31.4 && got.stats.viernes.method === 'osrm', 'getRouteCache returns saved cache', JSON.stringify(got))
+  assert(store.getRouteCache(2) === null, 'Route cache is scoped to its week')
+  assert(store.setRouteCache(1, { key: 5, days: {}, stops: {} }).success === false, 'Non-string key is rejected')
+  assert(store.setRouteCache(1, { key: 'x', days: { viernes: 'nope' }, stops: {} }).success === false, 'Non-array day is rejected')
+  assert(store.setRouteCache(1, { key: 'x', days: {}, stops: null }).success === false, 'Missing stops is rejected')
+  assert(store.getRouteCache(1)?.key === 'k1', 'Rejected update keeps previous cache')
+  store.init(TEST_DB)
+  assert(store.getRouteCache(1)?.key === 'k1', 'Route cache survives a reload')
+  store.setRouteCache(2, { ...cache, key: 'k2' })
+  assert(store.getRouteCache(1) === null && store.getRouteCache(2)?.key === 'k2', 'New week replaces the previous cache')
+}
+
+function testRouteCacheHelpers() {
+  log('\n--- testRouteCacheHelpers ---')
+  const { routeCacheKey, serializeRoute, restoreRoute } = require('./src/utils/routeCache.js')
+  const a = { id: 1, client_address: 'Colón 100', client_locality: 'Córdoba', delivery_day: 'viernes', total: 100, status: 'pending', items: [] }
+  const b = { id: 2, address: 'Mitre 5', locality: '', delivery_day: 'sabado', total: 50, status: 'pending', items: [] }
+  const start = { lat: -31.41, lng: -64.19, address: 'x' }
+  const base = routeCacheKey([a, b], start)
+  assert(typeof base === 'string' && base.length > 0, 'routeCacheKey returns a string')
+  assert(routeCacheKey([b, a], start) === base, 'Key ignores order of orders')
+  assert(routeCacheKey([{ ...a, total: 999, status: 'delivered', paid: true, items: [{ id: 9 }] }, b], start) === base, 'Key ignores total/status/items')
+  assert(routeCacheKey([{ ...a, client_address: 'Colón 200' }, b], start) !== base, 'Key changes with address')
+  assert(routeCacheKey([{ ...a, client_locality: 'Unquillo' }, b], start) !== base, 'Key changes with locality')
+  assert(routeCacheKey([{ ...a, delivery_day: 'sabado' }, b], start) !== base, 'Key changes with delivery day')
+  assert(routeCacheKey([a], start) !== base, 'Key changes when an order is removed')
+  assert(routeCacheKey([a, b, { ...b, id: 3 }], start) !== base, 'Key changes when an order is added')
+  assert(routeCacheKey([a, b], { ...start, lat: -31.5 }) !== base, 'Key changes with start location')
+  assert(routeCacheKey([a, b], null) !== base, 'Key changes when start location is cleared')
+
+  const route = {
+    viernes: [{ ...a, _coords: { lat: -31.4, lng: -64.2 }, _distance: 1.5, _geoQuery: 'Colón 100, Córdoba', _mapsQuery: 'Colón 100, Córdoba, Argentina' }],
+    sabado: [{ ...b, _coords: null, _distance: Infinity, _geoQuery: 'Mitre 5', _mapsQuery: 'Mitre 5, Argentina' }]
+  }
+  const stats = { viernes: { distance: 1000, duration: 100, geometry: null, method: 'osrm' } }
+  const ser = JSON.parse(JSON.stringify(serializeRoute({ route, startCoords: start, city: 'Córdoba', stats })))
+  assert(ser.days.viernes[0] === 1 && ser.days.sabado[0] === 2, 'serializeRoute stores order ids per day', JSON.stringify(ser.days))
+  assert(ser.stops[1]._coords.lat === -31.4 && ser.stops[2]._distance === null, 'serializeRoute keeps stop data and maps Infinity to null', JSON.stringify(ser.stops))
+  assert(ser.stops[1].total === undefined, 'serializeRoute does not store order data')
+
+  const fresh = [{ ...a, total: 777 }, b]
+  const restored = restoreRoute(ser, fresh)
+  assert(restored && restored.route.viernes[0].total === 777, 'restoreRoute uses fresh order data', JSON.stringify(restored?.route))
+  assert(restored.route.viernes[0]._coords.lat === -31.4 && restored.route.sabado[0]._distance === Infinity, 'restoreRoute merges stop data and restores Infinity')
+  assert(restored.startCoords.lat === -31.41 && restored.city === 'Córdoba' && restored.stats.viernes.method === 'osrm', 'restoreRoute returns start, city and stats')
+  assert(restoreRoute(ser, [a]) === null, 'restoreRoute returns null when an order is missing')
+  assert(restoreRoute(null, fresh) === null, 'restoreRoute returns null without cache')
+}
+
 function testClientLocality(store, { weekId, dishIds }) {
   log('\n--- testClientLocality ---')
   const c = store.createClient({ name: 'Loc', last_name: 'Test', address: 'Mitre 100', locality: 'Quilmes' })
@@ -1140,6 +1203,8 @@ function main() {
   testUpdateOrderDeliveryDay(store, seed)
   testClientLocality(store, seed)
   testStartLocation(store)
+  testRouteCache(store)
+  testRouteCacheHelpers()
   testAnalyticsDateRangeAndAverages()
   testOrderSnapshotOnEdit()
   testNextWeek()

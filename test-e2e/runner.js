@@ -1085,6 +1085,41 @@ async function runAll() {
     await page.waitForTimeout(400)
   })
 
+  await runSuite('ROUTE: hoja de ruta se reusa si no cambian los pedidos', async () => {
+    let geocodeCalls = 0
+    await page.route('https://nominatim.openstreetmap.org/**', route => {
+      geocodeCalls++
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ lat: '-31.42', lon: '-64.18' }]) })
+    })
+    await page.route('https://router.project-osrm.org/**', route => route.fulfill({ status: 500, body: '' }))
+    await page.evaluate(() => window.piu.setStartLocation({ address: 'Colón 500', lat: -31.41, lng: -64.19, city: 'Córdoba', countryCode: 'ar' }))
+    const openRoute = async () => {
+      await page.locator('button:has-text("Hoja de Ruta")').click()
+      await page.waitForSelector('text=Mapa de ruta', { timeout: 30000 })
+    }
+    const closeViewer = async () => {
+      await page.locator('.modal-content button:text-is("Cerrar")').click()
+      await page.waitForTimeout(300)
+    }
+    await openRoute()
+    const first = geocodeCalls
+    assert(first > 0, 'La primera hoja de ruta debería geocodificar')
+    await closeViewer()
+    await openRoute()
+    assert(geocodeCalls === first, `Sin cambios no debería geocodificar de nuevo (${first} → ${geocodeCalls})`)
+    await page.locator('button:has-text("Recalcular ruta")').click()
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === 'Recalcular ruta' && !b.disabled), { timeout: 30000 })
+    assert(geocodeCalls > first, 'Recalcular ruta debería volver a geocodificar')
+    const afterForce = geocodeCalls
+    await closeViewer()
+    await page.evaluate(() => window.piu.setStartLocation({ address: 'Otra 1', lat: -31.5, lng: -64.2, city: 'Córdoba', countryCode: 'ar' }))
+    await openRoute()
+    assert(geocodeCalls > afterForce, 'Cambiar el punto de partida debería recalcular')
+    await closeViewer()
+    await page.unroute('https://nominatim.openstreetmap.org/**')
+    await page.unroute('https://router.project-osrm.org/**')
+  })
+
   // ─────────────────────────────────────────────
   // Iteration 4: Empty state tests
   // ─────────────────────────────────────────────

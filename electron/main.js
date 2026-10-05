@@ -71,6 +71,8 @@ function registerIpcHandlers() {
   ipcMain.handle('piu:setDefaultDeliveryFee', (_, { fee }) => store.setDefaultDeliveryFee(fee))
   ipcMain.handle('piu:getStartLocation', () => store.getStartLocation())
   ipcMain.handle('piu:setStartLocation', (_, { loc }) => store.setStartLocation(loc))
+  ipcMain.handle('piu:getRouteCache', (_, { weekId }) => store.getRouteCache(weekId))
+  ipcMain.handle('piu:setRouteCache', (_, { weekId, cache }) => store.setRouteCache(weekId, cache))
   ipcMain.handle('piu:getPriceReview', (_, threshold) => store.getPriceReview(threshold))
   ipcMain.handle('piu:markIngredientUpdated', (_, { id }) => store.markIngredientUpdated(id))
   ipcMain.handle('piu:markDishPriceUpdated', (_, { id }) => store.markDishPriceUpdated(id))
