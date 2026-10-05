@@ -83,6 +83,7 @@ export default function Orders() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const [unassembleConfirmId, setUnassembleConfirmId] = useState(null)
   const [reopenConfirmId, setReopenConfirmId] = useState(null)
+  const [unpayConfirmId, setUnpayConfirmId] = useState(null)
   const selectedWeekIdRef = useRef(null)
 
   const loadWeekOrders = useCallback(async (weekId) => {
@@ -373,6 +374,31 @@ export default function Orders() {
       showToast('Pedido entregado', 'success')
     } catch (e) {
       setError('No se pudo marcar como entregado.')
+    }
+  }
+
+  const handlePaid = async (id) => {
+    try {
+      await window.piu?.markOrderPaid(id)
+      load()
+      window.dispatchEvent(new Event('piu:production-update'))
+      showToast('Pedido cobrado', 'success')
+    } catch (e) {
+      setError('No se pudo marcar como cobrado.')
+    }
+  }
+
+  const confirmUnpay = async () => {
+    if (!unpayConfirmId) return
+    const id = unpayConfirmId
+    setUnpayConfirmId(null)
+    try {
+      await window.piu?.unmarkOrderPaid(id)
+      load()
+      window.dispatchEvent(new Event('piu:production-update'))
+      showToast('Cobro deshecho', 'success')
+    } catch (e) {
+      setError('No se pudo deshacer el cobro.')
     }
   }
 
@@ -723,6 +749,16 @@ export default function Orders() {
                     style={{ fontSize: 'var(--font-sm)' }}>
                     {orderStatus(order.status).label}
                   </span>
+                  {order.paid ? (
+                    <span className="badge badge-success" style={{ fontSize: 'var(--font-sm)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      Cobrado ✓
+                      <button className="btn-paid-undo" onClick={() => setUnpayConfirmId(order.id)} aria-label="Deshacer cobro" title="Deshacer cobro">×</button>
+                    </span>
+                  ) : (
+                    <button className="btn btn-sm btn-status-paid" onClick={() => handlePaid(order.id)} aria-label="Marcar como cobrado">
+                      Cobrar
+                    </button>
+                  )}
                   {!isOtherWeek && (order.status === 'pending' || order.status === 'confirmed') && (
                     <button className="btn btn-sm btn-status-assemble" onClick={() => handleAssemble(order.id)} aria-label="Marcar como armado">
                       Armar
@@ -1128,6 +1164,14 @@ export default function Orders() {
         confirmLabel="Reabrir"
         onConfirm={confirmUndoDeliver}
         onCancel={() => setReopenConfirmId(null)}
+      />
+
+      <ConfirmPopup
+        isOpen={unpayConfirmId !== null}
+        message="¿Deshacer el cobro? El pedido deja de sumar a los ingresos."
+        confirmLabel="Deshacer cobro"
+        onConfirm={confirmUnpay}
+        onCancel={() => setUnpayConfirmId(null)}
       />
 
       {pdfPreview && (

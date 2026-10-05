@@ -27,6 +27,17 @@ function init(dbPath) {
     data = defaultData()
     save()
   }
+  migratePaidFlag()
+}
+
+function migratePaidFlag() {
+  if (data._paidMigrated) return
+  for (const o of data.orders) {
+    o.paid = o.status === 'delivered'
+    o.paid_at = null
+  }
+  data._paidMigrated = true
+  save()
 }
 
 function save() {
@@ -231,6 +242,8 @@ function enrichOrder(o) {
     ...o,
     has_delivery: !!o.has_delivery,
     delivery_fee: deliveryFee,
+    paid: !!o.paid,
+    paid_at: o.paid_at || null,
     client_name: c ? `${c.name} ${c.last_name}`.trim() : '—',
     client_phone: c?.phone || '',
     client_address: c?.address || '',
@@ -266,6 +279,8 @@ function createOrder({ clientId, weekId, items, notes, has_delivery, delivery_fe
     has_delivery: !!has_delivery,
     delivery_fee: Number(delivery_fee) || 0,
     delivery_day: has_delivery ? (['lunes','martes','miercoles','jueves','viernes','sabado','domingo'].includes(delivery_day) ? delivery_day : 'viernes') : null,
+    paid: false,
+    paid_at: null,
     created_at: getLocaleDatetime()
   }
   data.orders.push(order)
@@ -351,6 +366,24 @@ function unmarkOrderDelivered(id) {
   return { success: true }
 }
 
+function markOrderPaid(id) {
+  const order = data.orders.find(o => o.id === id)
+  if (!order || order.paid) return { success: false }
+  order.paid = true
+  order.paid_at = getLocaleDatetime()
+  save()
+  return { success: true }
+}
+
+function unmarkOrderPaid(id) {
+  const order = data.orders.find(o => o.id === id)
+  if (!order || !order.paid) return { success: false }
+  order.paid = false
+  order.paid_at = null
+  save()
+  return { success: true }
+}
+
 function clientHasOrderThisWeek(clientId, weekId = null) {
   const wid = weekId ?? getCurrentWeek().id
   return data.orders.some(o => o.client_id === clientId && o.week_id === wid)
@@ -382,6 +415,33 @@ function getOrdersByWeekId(weekId) {
       return nameA.localeCompare(nameB)
     })
   return orders
+}
+
+function getUndeliveredPastWeeks() {
+  const current = getCurrentWeek()
+  return data.weeks
+    .filter(w => w.week_start < current.week_start)
+    .sort((a, b) => b.week_start.localeCompare(a.week_start))
+    .map(week => ({
+      week,
+      orders: getOrdersByWeekId(week.id).filter(o => o.status !== 'delivered')
+    }))
+    .filter(w => w.orders.length > 0)
+}
+
+function markPastOrdersDelivered(ids) {
+  if (!Array.isArray(ids)) return { success: false, updated: 0 }
+  const current = getCurrentWeek()
+  const pastWeekIds = new Set(data.weeks.filter(w => w.week_start < current.week_start).map(w => w.id))
+  let updated = 0
+  for (const id of ids) {
+    const order = data.orders.find(o => o.id === id)
+    if (!order || !pastWeekIds.has(order.week_id) || order.status === 'delivered') continue
+    order.status = 'delivered'
+    updated++
+  }
+  if (updated > 0) save()
+  return { success: true, updated }
 }
 
 function getClientOrderHistory(clientId) {
@@ -1176,7 +1236,7 @@ function getDishProfitability() {
 }
 
 function getTrendsInRange(startDate, endDate) {
-  const orderIds = new Set(getOrdersInRange(startDate, endDate))
+  const orderIds = new Set(getRevenueOrdersInRange(startDate, endDate))
   const costMap = getDishCostMap()
   const weekly = {}
   const monthly = {}
@@ -1300,12 +1360,22 @@ function getOrdersInRange(startDate, endDate) {
   if (!startDate && !endDate) return data.orders.map(o => o.id)
   const start = startDate ? parseLocalDate(startDate) : new Date(0)
   const end = endDate ? new Date(endDate + 'T23:59:59') : new Date(864e12)
+  const weekStarts = new Map(data.weeks.map(w => [w.id, w.week_start]))
   return data.orders
     .filter(o => {
-      const d = parseLocalDate(o.created_at)
+      const d = parseLocalDate(weekStarts.get(o.week_id) || o.created_at)
       return d >= start && d <= end
     })
     .map(o => o.id)
+}
+
+function isRevenueOrder(o) {
+  return o.status === 'delivered' && !!o.paid
+}
+
+function getRevenueOrdersInRange(startDate, endDate) {
+  const ids = new Set(getOrdersInRange(startDate, endDate))
+  return data.orders.filter(o => ids.has(o.id) && isRevenueOrder(o)).map(o => o.id)
 }
 
 function getStatsForOrderIds(orderIds) {
@@ -1453,13 +1523,13 @@ function getOverproductionInRange(startDate, endDate) {
 }
 
 function getAnalyticsFiltered(startDate, endDate) {
-  const orderIds = getOrdersInRange(startDate, endDate)
+  const orderIds = getRevenueOrdersInRange(startDate, endDate)
   return getStatsForOrderIds(orderIds)
 }
 
 function getPeriodComparison(p1Start, p1End, p2Start, p2End) {
-  const p1Ids = getOrdersInRange(p1Start, p1End)
-  const p2Ids = getOrdersInRange(p2Start, p2End)
+  const p1Ids = getRevenueOrdersInRange(p1Start, p1End)
+  const p2Ids = getRevenueOrdersInRange(p2Start, p2End)
 
   const compute = (ids) => {
     let revenue = 0, cost = 0, profit = 0
@@ -1611,10 +1681,11 @@ function importData(newData) {
   data = { ...defaultData(), ...newData }
   nextId = data._nextId || 1
   save()
+  migratePaidFlag()
 }
 
 function getSalesForExport(startDate, endDate) {
-  const orderIds = getOrdersInRange(startDate, endDate)
+  const orderIds = getRevenueOrdersInRange(startDate, endDate)
   const orderSet = new Set(orderIds)
   const costMap = getDishCostMap()
   const rows = []
@@ -1676,6 +1747,8 @@ module.exports = {
   deleteOrder,
   getOrderWithDetails,
   getOrdersByWeekId,
+  getUndeliveredPastWeeks,
+  markPastOrdersDelivered,
   getClientOrderHistory,
   getDishes,
   createDish,
@@ -1696,6 +1769,8 @@ module.exports = {
   unmarkOrderAssembled,
   markOrderDelivered,
   unmarkOrderDelivered,
+  markOrderPaid,
+  unmarkOrderPaid,
   clientHasOrderThisWeek,
   getMonthlyTrend,
   getYearlyTrend,

@@ -6,9 +6,9 @@ const RouteMap = lazy(() => import('../components/RouteMap'))
 const NO_DELIVERIES = []
 
 const themes = [
-  { id: 'claro', label: '☀️ Claro', desc: 'Fondo crema suave, texto oscuro' },
-  { id: 'oscuro', label: '🌙 Oscuro', desc: 'Fondo negro, texto blanco, alto contraste' },
-  { id: 'daltonico', label: '🎨 Daltonico', desc: 'Colores amigables para daltonismo' }
+  { id: 'claro', label: '☀️ Claro', desc: 'Fondo gris claro, texto oscuro' },
+  { id: 'oscuro', label: '🌙 Oscuro', desc: 'Fondo oscuro, texto claro' },
+  { id: 'daltonico', label: '🎨 Daltonico', desc: 'Azul y naranja en lugar de verde y rojo' }
 ]
 
 function getThreshold() {

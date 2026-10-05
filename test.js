@@ -119,6 +119,11 @@ function testSanity(store) {
 function testDeliveryFeeDoubleCount(store, { dishIds, ingNames }) {
   console.log('\n🔴 TEST 1: Delivery fee double count in analytics')
   const orders = store.getOrders()
+  for (const o of orders) {
+    store.markOrderAssembled(o.id)
+    store.markOrderDelivered(o.id)
+    store.markOrderPaid(o.id)
+  }
   const analytics = store.getAnalyticsFiltered(null, null)
   const dish1Price = 3800
   const dish2Price = 5200
@@ -871,6 +876,148 @@ function testClientOrderStats() {
   })
 }
 
+function testUndeliveredPastWeeks() {
+  log('\n--- testUndeliveredPastWeeks ---')
+  withFixtureStore({
+    weeks: [
+      { id: 1, week_start: '2020-01-05', week_end: '2020-01-11', is_current: false },
+      { id: 2, week_start: '2020-01-12', week_end: '2020-01-18', is_current: false },
+      { id: 3, week_start: '2099-01-04', week_end: '2099-01-10', is_current: false }
+    ],
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'B' }, { id: 21, name: 'Beto', last_name: 'A' }],
+    orders: [
+      { id: 30, week_id: 1, client_id: 20, status: 'pending', created_at: '2020-01-06 10:00:00' },
+      { id: 31, week_id: 1, client_id: 21, status: 'assembled', created_at: '2020-01-06 11:00:00' },
+      { id: 32, week_id: 1, client_id: 20, status: 'delivered', created_at: '2020-01-06 12:00:00' },
+      { id: 33, week_id: 2, client_id: 20, status: 'confirmed', created_at: '2020-01-13 10:00:00' },
+      { id: 34, week_id: 3, client_id: 20, status: 'pending', created_at: '2020-01-13 10:00:00' }
+    ],
+    orderItems: [{ id: 40, order_id: 30, dish_id: 10, quantity: 2, unit_price: 1000 }]
+  }, (s) => {
+    const cur = s.getCurrentWeek()
+    s.createOrder({ clientId: 20, weekId: cur.id, items: [{ dishId: 10, quantity: 1 }] })
+    const curOrder = s.getOrders()[0]
+
+    const weeks = s.getUndeliveredPastWeeks()
+    assert(weeks.map(w => w.week.id).join(',') === '2,1', 'Only past weeks with undelivered orders, newest first', JSON.stringify(weeks.map(w => w.week.id)), 'high')
+    const w1 = weeks.find(w => w.week.id === 1)
+    assert(w1 && w1.orders.map(o => o.id).join(',') === '31,30', 'Undelivered orders only, sorted by last name', JSON.stringify(w1?.orders.map(o => o.id)))
+    assert(w1 && w1.orders.find(o => o.id === 30).total === 2000 && w1.orders.find(o => o.id === 30).client_name === 'Ana B', 'Orders are enriched', JSON.stringify(w1?.orders[1]))
+
+    const r = s.markPastOrdersDelivered([30, curOrder.id, 34, 99999])
+    assert(r.success && r.updated === 1, 'Only past-week orders are updated', JSON.stringify(r), 'high')
+    assert(s.getOrderWithDetails(30).status === 'delivered', 'Pending past order goes straight to delivered')
+    assert(s.getOrderWithDetails(curOrder.id).status === 'pending', 'Current-week order untouched', '', 'high')
+    assert(s.getOrderWithDetails(34).status === 'pending', 'Future-week order untouched', '', 'high')
+
+    s.markPastOrdersDelivered([31])
+    assert(s.getUndeliveredPastWeeks().map(w => w.week.id).join(',') === '2', 'Week disappears once all delivered')
+    assert(s.markPastOrdersDelivered('x').updated === 0, 'Non-array input is ignored')
+  })
+}
+
+function testOrderWeekAttribution() {
+  log('\n--- testOrderWeekAttribution ---')
+  withFixtureStore({
+    weeks: [
+      { id: 1, week_start: '2026-07-05', week_end: '2026-07-11' },
+      { id: 2, week_start: '2026-07-12', week_end: '2026-07-18' }
+    ],
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: [
+      { id: 30, week_id: 2, client_id: 20, status: 'delivered', paid: true, created_at: '2026-07-11 18:00:00' }
+    ],
+    orderItems: [{ order_id: 30, dish_id: 10, quantity: 1, unit_price: 1000, unit_cost: 400 }],
+    _paidMigrated: true
+  }, (s) => {
+    const next = s.getAnalyticsFiltered('2026-07-12', '2026-07-18')
+    assert(next.revenue === 1000, 'Order loaded on Saturday counts in the week it belongs to', `revenue=${next.revenue}`, 'critical')
+    const prev = s.getAnalyticsFiltered('2026-07-05', '2026-07-11')
+    assert(prev.revenue === 0, 'Order loaded on Saturday does not count in the loading week', `revenue=${prev.revenue}`, 'critical')
+    const comp = s.getPeriodComparison('2026-07-05', '2026-07-11', '2026-07-12', '2026-07-18')
+    assert(comp.period1.orders === 0 && comp.period2.orders === 1, 'Period comparison uses the order week', JSON.stringify(comp), 'high')
+    const trends = s.getTrendsInRange('2026-07-12', '2026-07-18')
+    assert(trends.weekly.length === 1 && trends.weekly[0].revenue === 1000, 'Trends include the order in its week', JSON.stringify(trends.weekly), 'high')
+    const sales = s.getSalesForExport('2026-07-12', '2026-07-18')
+    assert(sales.length === 1, 'Excel export uses the order week', JSON.stringify(sales), 'high')
+    const over = s.getOverproductionInRange('2026-07-12', '2026-07-18').perDish.find(d => d.dishId === 10)
+    assert(over && over.ordered === 1, 'Overproduction uses the order week', JSON.stringify(over))
+  })
+}
+
+function testPaidRevenue() {
+  log('\n--- testPaidRevenue ---')
+  withFixtureStore({
+    weeks: [{ id: 1, week_start: '2026-07-12', week_end: '2026-07-18' }],
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: [
+      { id: 30, week_id: 1, client_id: 20, status: 'delivered', paid: true, created_at: '2026-07-13 10:00:00' },
+      { id: 31, week_id: 1, client_id: 20, status: 'delivered', paid: false, created_at: '2026-07-13 11:00:00' },
+      { id: 32, week_id: 1, client_id: 20, status: 'assembled', paid: true, created_at: '2026-07-13 12:00:00' },
+      { id: 33, week_id: 1, client_id: 20, status: 'pending', paid: false, created_at: '2026-07-13 13:00:00' }
+    ],
+    orderItems: [30, 31, 32, 33].map(id => ({ order_id: id, dish_id: 10, quantity: 1, unit_price: 1000, unit_cost: 400 })),
+    _paidMigrated: true
+  }, (s) => {
+    const a = s.getAnalyticsFiltered('2026-07-12', '2026-07-18')
+    assert(a.revenue === 1000 && a.totalOrders === 1, 'Analytics counts only delivered and paid orders', `revenue=${a.revenue} orders=${a.totalOrders}`, 'critical')
+    const trends = s.getTrendsInRange('2026-07-12', '2026-07-18')
+    const trendRevenue = trends.weekly.reduce((sum, w) => sum + w.revenue, 0)
+    assert(trendRevenue === 1000, 'Trends count only delivered and paid orders', `revenue=${trendRevenue}`, 'critical')
+    const comp = s.getPeriodComparison('2026-07-12', '2026-07-18', '2026-07-12', '2026-07-18')
+    assert(comp.period1.revenue === 1000 && comp.period1.orders === 1, 'Period comparison counts only delivered and paid', JSON.stringify(comp.period1), 'critical')
+    const sales = s.getSalesForExport('2026-07-12', '2026-07-18')
+    assert(sales.length === 1 && sales[0].order_id === '#30', 'Excel sales only include delivered and paid', JSON.stringify(sales.map(r => r.order_id)), 'high')
+
+    const over = s.getOverproductionInRange('2026-07-12', '2026-07-18').perDish.find(d => d.dishId === 10)
+    assert(over && over.ordered === 4, 'Overproduction still counts every order', JSON.stringify(over), 'high')
+    const series = s.getDishTimeSeries(10, '2026-07-12', '2026-07-18')
+    assert(series[0]?.ordered === 4, 'Dish time series still counts every order', JSON.stringify(series))
+
+    assert(s.markOrderPaid(31).success === true, 'markOrderPaid succeeds')
+    const paidOrder = s.getOrderWithDetails(31)
+    assert(paidOrder.paid === true && typeof paidOrder.paid_at === 'string', 'markOrderPaid sets paid and paid_at', JSON.stringify(paidOrder))
+    assert(s.markOrderPaid(31).success === false, 'Cannot mark paid twice')
+    assert(s.markOrderPaid(99999).success === false, 'markOrderPaid fails for unknown order')
+    assert(s.getAnalyticsFiltered('2026-07-12', '2026-07-18').revenue === 2000, 'Paid delivered order now counts as revenue')
+
+    assert(s.unmarkOrderPaid(31).success === true, 'unmarkOrderPaid succeeds')
+    const unpaid = s.getOrderWithDetails(31)
+    assert(unpaid.paid === false && unpaid.paid_at === null, 'unmarkOrderPaid clears paid and paid_at', JSON.stringify(unpaid))
+    assert(s.getAnalyticsFiltered('2026-07-12', '2026-07-18').revenue === 1000, 'Unpaid order leaves revenue')
+    assert(s.unmarkOrderPaid(99999).success === false, 'unmarkOrderPaid fails for unknown order')
+
+    const created = s.createOrder({ clientId: 20, weekId: 1, items: [{ dishId: 10, quantity: 1 }] })
+    const fresh = s.getOrderWithDetails(created.id)
+    assert(fresh.paid === false && fresh.paid_at === null, 'New orders start unpaid', JSON.stringify(fresh))
+    assert(s.getOrders().every(o => typeof o.paid === 'boolean'), 'Enriched orders expose paid as boolean')
+  })
+
+  withFixtureStore({
+    weeks: [{ id: 1, week_start: '2026-07-12', week_end: '2026-07-18' }],
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: [
+      { id: 30, week_id: 1, client_id: 20, status: 'delivered', created_at: '2026-07-13 10:00:00' },
+      { id: 31, week_id: 1, client_id: 20, status: 'assembled', created_at: '2026-07-13 11:00:00' }
+    ],
+    orderItems: [30, 31].map(id => ({ order_id: id, dish_id: 10, quantity: 1, unit_price: 1000, unit_cost: 400 }))
+  }, (s) => {
+    assert(s.getOrderWithDetails(30).paid === true, 'Migration marks existing delivered orders as paid', '', 'critical')
+    assert(s.getOrderWithDetails(31).paid === false, 'Migration leaves undelivered orders unpaid', '', 'high')
+    s.unmarkOrderPaid(30)
+    s.init(path.join(__dirname, 'piu.analytics.test.json'))
+    assert(s.getOrderWithDetails(30).paid === false, 'Migration runs only once (unpaid survives restart)', '', 'critical')
+
+    const backup = s.getExportData()
+    s.importData({ ...backup, _paidMigrated: undefined, orders: backup.orders.map(o => ({ ...o, paid: undefined })) })
+    assert(s.getOrderWithDetails(30).paid === true, 'Importing an old backup runs the migration', '', 'high')
+  })
+}
+
 function testProductionFixes() {
   log('\n--- testProductionFixes ---')
   withFixtureStore({
@@ -901,6 +1048,52 @@ function testProductionFixes() {
     s.updateDish({ id: 11, name: 'Ñoquis', price: 1000, ingredients: [], is_active: false })
     assert(s.getDashboard().dishes.some(d => d.id === 11), 'Inactive dish with orders stays in production', '', 'high')
   })
+}
+
+function readThemeTokens() {
+  const css = fs.readFileSync(path.join(__dirname, 'src/styles/variables.css'), 'utf8')
+  const themes = {}
+  for (const m of css.matchAll(/\.theme-(\w+)\s*\{([^}]*)\}/g)) {
+    themes[m[1]] = Object.fromEntries([...m[2].matchAll(/--([\w-]+):\s*(#[0-9a-fA-F]{6})\b/g)].map(t => [t[1], t[2]]))
+  }
+  return themes
+}
+
+function contrastRatio(a, b) {
+  const lum = hex => {
+    const [r, g, bl] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl
+  }
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+function testThemeContrast() {
+  log('\n--- testThemeContrast ---')
+  const themes = readThemeTokens()
+  const pairs = [
+    ['text', 'bg'], ['text', 'bg-card'], ['text', 'bg-hover'],
+    ['text-secondary', 'bg'], ['text-secondary', 'bg-card'],
+    ['on-primary', 'primary'], ['on-primary', 'primary-hover'], ['primary', 'bg-card'], ['primary', 'primary-light'],
+    ['on-danger', 'danger'], ['danger', 'bg-card'], ['danger', 'danger-light'],
+    ['on-success', 'success'], ['success', 'bg-card'], ['success', 'success-light'],
+    ['warning', 'bg-card'], ['warning', 'warning-light'],
+    ['on-accent', 'accent'], ['accent', 'bg-card'], ['accent', 'accent-light']
+  ]
+  for (const name of ['claro', 'oscuro', 'daltonico']) {
+    const t = themes[name]
+    assert(!!t, `Theme ${name} exists`, '', 'high')
+    if (!t) continue
+    for (const [fg, bg] of pairs) {
+      if (!t[fg] || !t[bg]) {
+        assert(false, `${name}: tokens --${fg} and --${bg} are defined`, '', 'high')
+        continue
+      }
+      const ratio = contrastRatio(t[fg], t[bg])
+      assert(ratio >= 4.5, `${name}: --${fg} on --${bg} meets WCAG AA`, `${t[fg]} on ${t[bg]} = ${ratio.toFixed(2)}`, 'high')
+    }
+  }
 }
 
 function main() {
@@ -955,6 +1148,10 @@ function main() {
   testIngredientUnitChange()
   testClientOrderStats()
   testProductionFixes()
+  testUndeliveredPastWeeks()
+  testPaidRevenue()
+  testOrderWeekAttribution()
+  testThemeContrast()
   testCompositeIngredient(store)
   testCompositeShoppingListLocal(store, seed)
   testCircularComposite(store)

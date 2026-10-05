@@ -1,21 +1,37 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useHeaderContent } from './HeaderContext'
+import Icon from './Icon'
 
 const navItems = [
-  { path: '/', label: 'Producción', icon: '📊', short: 'Prod', key: '1' },
-  { path: '/orders', label: 'Pedidos', icon: '📝', short: 'Ped', key: '2' },
-  { path: '/menu', label: 'Menú', icon: '🍽️', short: 'Menú', key: '3' },
-  { path: '/ingredients', label: 'Ingredientes', icon: '🥘', short: 'Ingr', key: '4' },
-  { path: '/clients', label: 'Clientes', icon: '👥', short: 'Cli', key: '5' },
-  { path: '/analytics', label: 'Análisis', icon: '📈', short: 'Anal', key: '6' },
-  { path: '/settings', label: 'Ajustes', icon: '⚙️', short: 'Ajust', key: '7' }
+  { path: '/', section: 7, label: 'Inicio', icon: 'home', short: 'Inicio', key: '1' },
+  { path: '/production', section: 0, label: 'Producción', icon: 'pot', short: 'Prod', key: '2' },
+  { path: '/orders', section: 1, label: 'Pedidos', icon: 'receipt', short: 'Ped', key: '3' },
+  { path: '/menu', section: 2, label: 'Menú', icon: 'utensils', short: 'Menú', key: '4' },
+  { path: '/ingredients', section: 3, label: 'Ingredientes', icon: 'leaf', short: 'Ingr', key: '5' },
+  { path: '/clients', section: 4, label: 'Clientes', icon: 'users', short: 'Cli', key: '6' },
+  { path: '/analytics', section: 5, label: 'Análisis', icon: 'chart', short: 'Anal', key: '7' },
+  { path: '/settings', section: 6, label: 'Ajustes', icon: 'sliders', short: 'Ajust', key: '8' }
 ]
 
-export default function Layout({ children, theme, macroMode }) {
+const COLLAPSED_KEY = 'piu-sidebar-collapsed'
+
+function readCollapsed() {
+  try { return localStorage.getItem(COLLAPSED_KEY) === 'true' } catch { return false }
+}
+
+function shortDate(str) {
+  if (!str) return ''
+  const [, m, d] = str.split('-')
+  return `${d}/${m}`
+}
+
+export default function Layout({ children, macroMode }) {
   const [weekInfo, setWeekInfo] = useState(null)
   const [orderCounts, setOrderCounts] = useState(null)
+  const [collapsed, setCollapsed] = useState(readCollapsed)
   const mainRef = useRef(null)
+  const navRef = useRef(null)
   const navigate = useNavigate()
   const location = useLocation()
   const initialPath = useRef(location.pathname)
@@ -43,7 +59,7 @@ export default function Layout({ children, theme, macroMode }) {
     const handler = (e) => {
       if (!e.ctrlKey && !e.metaKey) return
       if (document.querySelector('.modal-overlay')) return
-      const idx = ['1','2','3','4','5','6','7'].indexOf(e.key)
+      const idx = ['1','2','3','4','5','6','7','8'].indexOf(e.key)
       if (idx >= 0 && navItems[idx]) {
         e.preventDefault()
         navigate(navItems[idx].path)
@@ -53,212 +69,153 @@ export default function Layout({ children, theme, macroMode }) {
     return () => window.removeEventListener('keydown', handler)
   }, [navigate])
 
-  const formatDate = (str) => {
-    if (!str) return ''
-    const [y, m, d] = str.split('-')
-    return `${d}/${m}/${y}`
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      try { localStorage.setItem(COLLAPSED_KEY, String(!prev)) } catch {}
+      return !prev
+    })
   }
 
   const handleNavKeyDown = useCallback((e, idx) => {
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      e.preventDefault()
-      const next = (idx + 1) % navItems.length
-      document.querySelectorAll('nav a')[next]?.focus()
-    }
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      const prev = (idx - 1 + navItems.length) % navItems.length
-      document.querySelectorAll('nav a')[prev]?.focus()
-    }
-    if (e.key === 'Home') {
-      e.preventDefault()
-      document.querySelectorAll('nav a')[0]?.focus()
-    }
-    if (e.key === 'End') {
-      e.preventDefault()
-      document.querySelectorAll('nav a')[navItems.length - 1]?.focus()
-    }
+    const last = navItems.length - 1
+    const target = {
+      ArrowDown: idx === last ? 0 : idx + 1,
+      ArrowRight: idx === last ? 0 : idx + 1,
+      ArrowUp: idx === 0 ? last : idx - 1,
+      ArrowLeft: idx === 0 ? last : idx - 1,
+      Home: 0,
+      End: last
+    }[e.key]
+    if (target === undefined) return
+    e.preventDefault()
+    navRef.current?.querySelectorAll('a')[target]?.focus()
   }, [])
 
+  const pendingOrders = orderCounts ? orderCounts.pending + orderCounts.confirmed : 0
+
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      background: 'var(--bg)'
-    }}>
-      <header className="no-print" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 'var(--spacing-sm) var(--spacing-md)',
-        background: 'var(--nav-bg)',
-        borderBottom: '2px solid var(--border)',
-        boxShadow: 'var(--shadow)',
-        zIndex: 100
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-            <svg width="32" height="32" viewBox="0 0 100 100" aria-hidden="true">
-              <circle cx="50" cy="50" r="48" fill="var(--primary)" />
-              <text x="50" y="68" fontFamily="system-ui" fontSize="54" fontWeight="900" fill="white" textAnchor="middle">P</text>
-            </svg>
-            <h1 style={{
-              fontSize: 'var(--font-lg)',
-              fontWeight: 900,
-              color: 'var(--primary)',
-              margin: 0,
-              lineHeight: 1
-            }}>PIU</h1>
+    <div className={`app-shell${collapsed ? ' is-collapsed' : ''}`}>
+      <aside className="sidebar no-print">
+        <div className="sidebar-brand">
+          <svg className="sidebar-logo" viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="48" fill="var(--primary)" />
+            <text x="50" y="68" fontFamily="inherit" fontSize="54" fontWeight="800" fill="var(--on-primary)" textAnchor="middle">P</text>
+          </svg>
+          <div className="sidebar-label">
+            <h1 className="sidebar-name">Piu</h1>
+            {weekInfo && (
+              <p className="sidebar-week">
+                Semana <strong>{shortDate(weekInfo.week_start)} – {shortDate(weekInfo.week_end)}</strong>
+              </p>
+            )}
           </div>
-          {weekInfo && (
-            <span style={{
-              fontSize: 'var(--font-sm)',
-              color: 'var(--text-secondary)',
-              fontWeight: 600
-            }}>
-              Semana {formatDate(weekInfo.week_start)} - {formatDate(weekInfo.week_end)}
-            </span>
-          )}
         </div>
 
-        <nav style={{ display: 'flex', gap: '4px' }} aria-label="Navegación principal">
-          {navItems.map((item, idx) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              title={`${item.label} (Ctrl+${item.key})`}
-              onKeyDown={e => handleNavKeyDown(e, idx)}
-              style={({ isActive }) => ({
-                textDecoration: 'none',
-                padding: 'var(--spacing-sm) var(--spacing-md)',
-                borderRadius: 'var(--radius)',
-                fontSize: macroMode ? 'var(--font-sm)' : 'var(--font-body)',
-                fontWeight: 700,
-                color: isActive ? `var(--section-${idx})` : 'var(--text-secondary)',
-                background: isActive ? `var(--section-${idx}-light)` : 'transparent',
-                border: isActive ? `3px solid var(--section-${idx})` : '3px solid transparent',
-                transition: 'all var(--transition)',
-                minHeight: macroMode ? 'var(--touch-size)' : 'calc(var(--touch-size) * 0.8)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--spacing-xs)'
-              })}
-            >
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: macroMode ? 22 : 26,
-                height: macroMode ? 22 : 26,
-                borderRadius: '6px',
-                background: `var(--section-${idx}-light)`,
-                fontSize: macroMode ? '0.8rem' : '1rem',
-                lineHeight: 1,
-                flexShrink: 0
-              }}>
-                {item.icon}
-              </span>
-              <span>{macroMode ? item.short : item.label}</span>
-              {item.path === '/orders' && orderCounts && (orderCounts.pending + orderCounts.confirmed) > 0 && (
-                <span style={{
-                  background: 'var(--danger)',
-                  color: '#FFF',
-                  fontSize: 'var(--font-xs)',
-                  fontWeight: 900,
-                  padding: '0 6px',
-                  borderRadius: '999px',
-                  minWidth: '18px',
-                  height: '18px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  lineHeight: 1
-                }}>
-                  {orderCounts.pending + orderCounts.confirmed}
-                </span>
-              )}
-            </NavLink>
-          ))}
+        <nav id="sidebar-nav" ref={navRef} aria-label="Navegación principal">
+          <ul>
+            {navItems.map((item, idx) => (
+              <li key={item.path}>
+                <NavLink
+                  to={item.path}
+                  end={item.path === '/'}
+                  className="sidebar-link"
+                  title={`${item.label} (Ctrl+${item.key})`}
+                  aria-label={collapsed ? item.label : undefined}
+                  onKeyDown={e => handleNavKeyDown(e, idx)}
+                  style={{ '--link-accent': `var(--section-${item.section})` }}
+                >
+                  <Icon name={item.icon} className="sidebar-icon" />
+                  <span className="sidebar-label">{macroMode ? item.short : item.label}</span>
+                  {item.path === '/orders' && pendingOrders > 0 && (
+                    <span className="sidebar-badge" aria-label={`${pendingOrders} sin armar`}>{pendingOrders}</span>
+                  )}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
         </nav>
-      </header>
 
-      {headerContent}
+        <ProductionMeter collapsed={collapsed} />
 
-      <main
-        key={location.key}
-        ref={mainRef}
-        id="main-content"
-        tabIndex={-1}
-        style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: 'var(--spacing-md)',
-          outline: 'none',
-          animation: 'slideUp 250ms var(--ease-out-quart)'
-        }}
-      >
-        {children}
-      </main>
+        <button
+          className="sidebar-toggle"
+          onClick={toggleCollapsed}
+          aria-controls="sidebar-nav"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+          title={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+        >
+          <Icon name="panel" className="sidebar-icon" />
+          <span className="sidebar-label">Colapsar</span>
+        </button>
+      </aside>
 
-      <ProductionBar />
+      <div className="app-main">
+        {headerContent}
+        <main
+          key={location.key}
+          ref={mainRef}
+          id="main-content"
+          tabIndex={-1}
+          className="app-content"
+        >
+          {children}
+        </main>
+      </div>
     </div>
   )
 }
 
-function ProductionBar() {
-  const [dashboard, setDashboard] = useState({ totals: { total: 0, produced: 0 } })
+const MAX_SEGMENTS = 40
+
+function ProductionMeter({ collapsed }) {
+  const [totals, setTotals] = useState({ total: 0, produced: 0 })
 
   useEffect(() => {
-    const load = () => window.piu?.getDashboard().then(d => { if (d?.totals) setDashboard(d) })
+    const load = () => window.piu?.getDashboard().then(d => { if (d?.totals) setTotals(d.totals) })
     load()
     const interval = setInterval(load, 30000)
-    const handler = () => load()
-    window.addEventListener('piu:production-update', handler)
+    window.addEventListener('piu:production-update', load)
     return () => {
       clearInterval(interval)
-      window.removeEventListener('piu:production-update', handler)
+      window.removeEventListener('piu:production-update', load)
     }
   }, [])
 
-  const { total, produced } = dashboard.totals
+  const { total, produced } = totals
   const pct = total > 0 ? Math.min(100, Math.round((produced / total) * 100)) : 0
   const remaining = Math.max(0, total - produced)
+  const done = total > 0 && remaining === 0
+  const segmented = !collapsed && total > 0 && total <= MAX_SEGMENTS
 
   return (
-    <div className="no-print" style={{
-      padding: 'var(--spacing-sm) var(--spacing-md)',
-      background: 'var(--nav-bg)',
-      borderTop: '2px solid var(--border)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 'var(--spacing-md)',
-      fontSize: 'var(--font-body)',
-      fontWeight: 700
-    }}>
-      <div style={{ flex: 1, height: 'calc(var(--touch-size) * 0.5)', background: 'var(--border)', borderRadius: '100px', overflow: 'hidden' }}>
-        <div style={{
-          width: `${pct}%`,
-          height: '100%',
-          background: pct >= 100 ? 'var(--success)' : 'var(--primary)',
-          borderRadius: '100px',
-          transition: 'width 0.5s ease',
-          minWidth: '20px'
-        }} />
+    <div className={`meter${done ? ' is-done' : ''}`} data-testid="production-meter">
+      <div className="meter-head">
+        <span className="sidebar-label meter-title">Producido</span>
+        {collapsed ? (
+          <span className="meter-num meter-pct">{pct}%</span>
+        ) : (
+          <span className="meter-num">
+            {produced}<span className="meter-of">/{total}</span>
+          </span>
+        )}
       </div>
-      <span style={{ color: 'var(--text)' }}>
-        Producido: <strong>{produced}</strong>/{total} ({pct}%)
-      </span>
-      {remaining > 0 && (
-        <span style={{ color: 'var(--accent)' }}>
-          Faltan <strong>{remaining}</strong> platos
-        </span>
-      )}
-      {remaining <= 0 && total > 0 && (
-        <span style={{ color: 'var(--success)' }}>
-          ✓ Completado
-        </span>
-      )}
+      <div
+        className={`meter-track${segmented ? ' is-segmented' : ''}`}
+        role="progressbar"
+        aria-label="Producción de la semana"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-valuetext={`${produced} de ${total} platos`}
+      >
+        {segmented
+          ? Array.from({ length: total }, (_, i) => <span key={i} className={i < produced ? 'is-on' : undefined} />)
+          : <span className="is-on" style={{ width: `${pct}%` }} />}
+      </div>
+      <p className="sidebar-label meter-foot">
+        {total === 0 ? 'Sin pedidos esta semana' : done ? '✓ Semana completa' : `Faltan ${remaining} · ${pct}%`}
+      </p>
     </div>
   )
 }

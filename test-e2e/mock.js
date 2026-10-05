@@ -3,6 +3,7 @@
     { id: 1, week_start: '2026-07-12', week_end: '2026-07-18' },
     { id: 2, week_start: '2026-07-19', week_end: '2026-07-25' },
     { id: 3, week_start: '2026-07-26', week_end: '2026-08-01' },
+    { id: 4, week_start: '2026-07-05', week_end: '2026-07-11' },
   ]
 
   const INGREDIENTS = [
@@ -63,6 +64,7 @@
     { id: 1, week_id: 1, client_id: 1, status: 'delivered', notes: '', has_delivery: false, delivery_fee: 0, created_at: '2026-07-13T10:00:00', items: [{ dishId: 1, quantity: 2, unit_price: 1800, unit_cost: 500 }, { dishId: 8, quantity: 1, unit_price: 400, unit_cost: 80 }] },
     { id: 2, week_id: 1, client_id: 2, status: 'delivered', notes: 'Sin sal', has_delivery: true, delivery_fee: 300, delivery_day: 'viernes', created_at: '2026-07-13T12:00:00', items: [{ dishId: 2, quantity: 1, unit_price: 1500, unit_cost: 350 }, { dishId: 10, quantity: 2, unit_price: 300, unit_cost: 60 }] },
     { id: 3, week_id: 1, client_id: 3, status: 'assembled', notes: '', has_delivery: false, delivery_fee: 0, created_at: '2026-07-14T09:00:00', items: [{ dishId: 3, quantity: 1, unit_price: 1700, unit_cost: 380 }] },
+    { id: 7, week_id: 4, client_id: 2, status: 'confirmed', notes: '', has_delivery: false, delivery_fee: 0, created_at: '2026-07-06T10:00:00', items: [{ dishId: 1, quantity: 1, unit_price: 1800, unit_cost: 500 }] },
     { id: 4, week_id: 2, client_id: 4, status: 'confirmed', notes: 'Llamar antes', has_delivery: true, delivery_fee: 500, delivery_day: 'sabado', created_at: '2026-07-20T11:00:00', items: [{ dishId: 4, quantity: 2, unit_price: 1600, unit_cost: 320 }, { dishId: 9, quantity: 1, unit_price: 350, unit_cost: 50 }, { dishId: 10, quantity: 3, unit_price: 300, unit_cost: 60 }] },
     { id: 5, week_id: 2, client_id: 1, status: 'pending', notes: '', has_delivery: false, delivery_fee: 0, created_at: '2026-07-20T15:00:00', items: [{ dishId: 5, quantity: 3, unit_price: 1300, unit_cost: 300 }] },
     { id: 6, week_id: 2, client_id: 5, status: 'pending', notes: 'Sin cebolla', has_delivery: false, delivery_fee: 0, created_at: '2026-07-21T08:00:00', items: [{ dishId: 6, quantity: 1, unit_price: 1500, unit_cost: 350 }, { dishId: 7, quantity: 1, unit_price: 1700, unit_cost: 400 }] },
@@ -78,6 +80,11 @@
   ]
 
   const currentWeekId = 2
+
+  ORDERS.forEach(o => { o.paid = o.status === 'delivered'; o.paid_at = null })
+  const isRevenueOrder = o => o.status === 'delivered' && !!o.paid
+  const orderDate = o => WEEKS.find(w => w.id === o.week_id)?.week_start || o.created_at
+  const inRange = (o, start, end) => orderDate(o) >= start && orderDate(o) <= end + 'T23:59:59'
 
   const DATA = {
     weeks: WEEKS,
@@ -120,6 +127,8 @@
       has_delivery: !!o.has_delivery,
       delivery_fee: deliveryFee,
       delivery_day: o.delivery_day || null,
+      paid: !!o.paid,
+      paid_at: o.paid_at || null,
       client_name: client ? `${client.name} ${client.last_name}`.trim() : '—',
       client_phone: client?.phone || '',
       client_address: client?.address || '',
@@ -333,7 +342,7 @@
     createOrder(data) {
       const id = genId()
       const order = {
-        id, week_id: data.weekId || currentWeekId, status: 'pending',
+        id, week_id: data.weekId || currentWeekId, status: 'pending', paid: false, paid_at: null,
         client_id: data.clientId, notes: data.notes || '',
         has_delivery: data.has_delivery || false,
         delivery_fee: data.delivery_fee || 0,
@@ -407,6 +416,34 @@
       }))
     },
 
+    getUndeliveredPastWeeks() {
+      const current = WEEKS.find(w => w.id === currentWeekId)
+      return Promise.resolve(WEEKS
+        .filter(w => w.week_start < current.week_start)
+        .sort((a, b) => b.week_start.localeCompare(a.week_start))
+        .map(week => ({
+          week,
+          orders: DATA.orders.filter(o => o.week_id === week.id && o.status !== 'delivered').map(o => {
+            const client = DATA.clients.find(c => c.id === o.client_id)
+            return { ...client, ...enrichMockOrder(o) }
+          })
+        }))
+        .filter(w => w.orders.length > 0))
+    },
+
+    markPastOrdersDelivered(ids) {
+      const current = WEEKS.find(w => w.id === currentWeekId)
+      const pastWeekIds = new Set(WEEKS.filter(w => w.week_start < current.week_start).map(w => w.id))
+      let updated = 0
+      for (const id of ids || []) {
+        const order = DATA.orders.find(o => o.id === id)
+        if (!order || !pastWeekIds.has(order.week_id) || order.status === 'delivered') continue
+        order.status = 'delivered'
+        updated++
+      }
+      return Promise.resolve({ success: true, updated })
+    },
+
     getClientOrderHistory(clientId) {
       return Promise.resolve(DATA.orders.filter(o => o.client_id === clientId).map(o => {
         const client = DATA.clients.find(c => c.id === o.client_id)
@@ -444,6 +481,22 @@
       return Promise.resolve({ success: true })
     },
 
+    markOrderPaid(id) {
+      const order = DATA.orders.find(o => o.id === id)
+      if (!order || order.paid) return Promise.resolve({ success: false })
+      order.paid = true
+      order.paid_at = new Date().toISOString()
+      return Promise.resolve({ success: true })
+    },
+
+    unmarkOrderPaid(id) {
+      const order = DATA.orders.find(o => o.id === id)
+      if (!order || !order.paid) return Promise.resolve({ success: false })
+      order.paid = false
+      order.paid_at = null
+      return Promise.resolve({ success: true })
+    },
+
     clientHasOrderThisWeek(clientId, weekId) {
       const wid = weekId ?? currentWeekId
       return Promise.resolve(DATA.orders.some(o => o.week_id === wid && o.client_id === clientId))
@@ -460,6 +513,7 @@
         confirmed: weekOrders.filter(o => o.status === 'confirmed').length,
         assembled: weekOrders.filter(o => o.status === 'assembled').length,
         delivered: weekOrders.filter(o => o.status === 'delivered').length,
+        total: weekOrders.length,
       })
     },
 
@@ -483,9 +537,9 @@
     getAnalytics() { return this.getAnalyticsFiltered(null, null) },
 
     getAnalyticsFiltered(startDate, endDate) {
-      let filteredOrders = DATA.orders
+      let filteredOrders = DATA.orders.filter(isRevenueOrder)
       if (startDate && endDate) {
-        filteredOrders = DATA.orders.filter(o => o.created_at >= startDate && o.created_at <= endDate + 'T23:59:59')
+        filteredOrders = filteredOrders.filter(o => inRange(o, startDate, endDate))
       }
       const totalOrders = filteredOrders.length
       const totalItems = filteredOrders.flatMap(o => o.items)
@@ -593,8 +647,8 @@
     },
 
     getPeriodComparison(p1Start, p1End, p2Start, p2End) {
-      const ordersP1 = DATA.orders.filter(o => o.created_at >= p1Start && o.created_at <= p1End + 'T23:59:59')
-      const ordersP2 = DATA.orders.filter(o => o.created_at >= p2Start && o.created_at <= p2End + 'T23:59:59')
+      const ordersP1 = DATA.orders.filter(o => isRevenueOrder(o) && inRange(o, p1Start, p1End))
+      const ordersP2 = DATA.orders.filter(o => isRevenueOrder(o) && inRange(o, p2Start, p2End))
       const calc = (orders) => {
         const items = orders.flatMap(o => o.items)
         const revenue = items.reduce((s, i) => s + (i.unit_price || 0) * i.quantity, 0)

@@ -193,6 +193,10 @@ export default function Analytics() {
           <button className="btn btn-outline btn-sm" onClick={handleExcelExport}>↓ Excel</button>
         </div>
 
+        <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-xs)' }}>
+          Ingresos y ganancias incluyen solo pedidos entregados y cobrados.
+        </p>
+
         <div style={{
           display: 'flex',
           gap: 'var(--spacing-xs)',

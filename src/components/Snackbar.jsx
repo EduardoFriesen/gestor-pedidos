@@ -6,6 +6,12 @@ const BG = {
   info: 'var(--accent)'
 }
 
+const FG = {
+  success: 'var(--on-success)',
+  error: 'var(--on-danger)',
+  info: 'var(--on-accent)'
+}
+
 export default function Snackbar({ message, type = 'success', onClose }) {
   const [visible, setVisible] = useState(false)
 
@@ -20,7 +26,7 @@ export default function Snackbar({ message, type = 'success', onClose }) {
       aria-live="polite"
       style={{
         background: BG[type] || BG.info,
-        color: '#fff',
+        color: FG[type] || FG.info,
         padding: 'var(--spacing-sm) var(--spacing-md)',
         borderRadius: 'var(--radius)',
         fontWeight: 700,
@@ -43,7 +49,7 @@ export default function Snackbar({ message, type = 'success', onClose }) {
         style={{
           background: 'none',
           border: 'none',
-          color: '#fff',
+          color: 'inherit',
           cursor: 'pointer',
           padding: '4px',
           minHeight: 'auto',

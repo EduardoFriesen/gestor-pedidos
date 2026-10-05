@@ -515,7 +515,7 @@ export default function Dashboard() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: 'var(--font-sm)',
-                    color: '#FFFFFF',
+                    color: done ? 'var(--on-success)' : 'var(--on-primary)',
                     fontWeight: 700
                   }}>
                     {pct > 15 && `${pct}%`}

@@ -1,5 +1,19 @@
 {
   "passed": [
+    "Shell: sidebar navigation with 8 sections",
+    "Shell: every nav link fits at 1400px",
+    "Shell: production meter lives in the sidebar",
+    "Shell: sidebar collapses and remembers it",
+    "Shell: Ctrl+3 goes to Pedidos",
+    "Shell: bundled font is loaded",
+    "Home: renders as start page",
+    "Home: week tabs list only weeks with undelivered orders",
+    "Home: arrow keys move between week tabs",
+    "Home: current week undelivered tile",
+    "Home: stale prices tile",
+    "Home: expand category shows dishes",
+    "Home: deliver one order removes its tab",
+    "Home: deliver all with confirmation empties panel",
     "Dashboard: renders production cards",
     "Dashboard: search input exists",
     "Dashboard: category filter buttons",
@@ -23,6 +37,8 @@
     "Orders: switch to historical week",
     "Orders: advance pending order to assembled",
     "Orders: create order via modal",
+    "Orders: mark order as paid",
+    "Orders: undo paid asks for confirmation",
     "Menu: + Plato button exists",
     "Menu: search input exists",
     "Menu: dish list renders",
@@ -51,6 +67,7 @@
     "Clients: delete button exists",
     "Clients: create client via modal",
     "Clients: edit client populates fields",
+    "Analytics: revenue scope note",
     "Analytics: stat cards render",
     "Analytics: preset filter buttons",
     "Analytics: tab buttons exist",
@@ -74,49 +91,24 @@
     "Settings: cycle back to claro theme",
     "Settings: change font size to small",
     "Settings: change font size to large",
-    "Settings: change font size to medium"
+    "Settings: change font size to medium",
+    "KEYBOARD: Enter crea cliente y Esc en \"¿Cargar otro?\" termina el alta",
+    "KEYBOARD: Esc cierra el formulario de cliente",
+    "KEYBOARD: confirmación de borrar con flechas y Enter cancela",
+    "KEYBOARD: Enter guarda ingrediente editado",
+    "KEYBOARD: Enter guarda plato editado",
+    "KEYBOARD: pedido completo con teclado",
+    "EMPTY: Dashboard sin pedidos",
+    "EMPTY: Orders sin pedidos",
+    "EMPTY: Menu sin platos",
+    "EMPTY: Ingredients vacío",
+    "EMPTY: Clients vacío",
+    "ERROR: Dashboard on load",
+    "ERROR: Menu on load",
+    "ERROR: Orders on load gracefully handles",
+    "ERROR: Ingredients on load",
+    "ERROR: Clients on load"
   ],
-  "failed": [
-    {
-      "name": "EMPTY: Dashboard sin pedidos",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=orders#/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=orders#/\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "EMPTY: Orders sin pedidos",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=orders#/orders\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=orders#/orders\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "EMPTY: Menu sin platos",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=dishes#/menu\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=dishes#/menu\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "EMPTY: Ingredients vacío",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=ingredients#/ingredients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=ingredients#/ingredients\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "EMPTY: Clients vacío",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?empty=clients#/clients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?empty=clients#/clients\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "ERROR: Dashboard on load",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getDashboard#/\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getDashboard#/\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "ERROR: Menu on load",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getDishes#/menu\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getDishes#/menu\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "ERROR: Orders on load gracefully handles",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getOrders#/orders\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getOrders#/orders\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "ERROR: Ingredients on load",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getIngredients#/ingredients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getIngredients#/ingredients\", waiting until \"load\"\u001b[22m\n"
-    },
-    {
-      "name": "ERROR: Clients on load",
-      "error": "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/?error=getClients#/clients\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/?error=getClients#/clients\", waiting until \"load\"\u001b[22m\n"
-    }
-  ],
-  "total": 85
+  "failed": [],
+  "total": 108
 }

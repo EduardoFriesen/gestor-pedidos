@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import { HeaderProvider } from './components/HeaderContext'
 import ToastProvider from './components/ToastProvider'
+import Home from './pages/Home'
 import Dashboard from './pages/Dashboard'
 import Orders from './pages/Orders'
 import Menu from './pages/Menu'
@@ -32,7 +33,8 @@ export default function App() {
       <Layout theme={theme} setTheme={setTheme} macroMode={macroMode} setMacroMode={setMacroMode}>
         <ToastProvider>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/production" element={<Dashboard />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/menu" element={<Menu />} />
             <Route path="/clients" element={<Clients />} />

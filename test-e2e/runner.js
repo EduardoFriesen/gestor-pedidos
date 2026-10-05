@@ -44,9 +44,134 @@ async function runAll() {
   await page.goto(BASE_URL)
   await waitForApp(page)
 
+  // ─── SHELL ────────────────────────────────────────────────────
+  console.log('\n═══════ SHELL ═══════\n')
+
+  await runSuite('Shell: sidebar navigation with 8 sections', async () => {
+    const nav = page.locator('aside nav[aria-label="Navegación principal"]')
+    assert(await nav.isVisible(), 'Sidebar nav not found')
+    assert(await nav.locator('a').count() === 8, `Expected 8 links, got ${await nav.locator('a').count()}`)
+    assert(await nav.locator('a[aria-current="page"]').count() === 1, 'Exactly one link should be current')
+  })
+
+  await runSuite('Shell: every nav link fits at 1400px', async () => {
+    await page.setViewportSize({ width: 1400, height: 800 })
+    const fits = await page.evaluate(() => {
+      const links = [...document.querySelectorAll('aside nav a')]
+      return links.length === 8 && links.every(a => {
+        const r = a.getBoundingClientRect()
+        return r.right <= window.innerWidth && r.bottom <= window.innerHeight && r.width > 0
+      })
+    })
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    assert(fits, 'Some nav links are cut off')
+  })
+
+  await runSuite('Shell: production meter lives in the sidebar', async () => {
+    const meter = page.locator('aside [data-testid="production-meter"]')
+    assert(await meter.isVisible(), 'Production meter not in sidebar')
+    assert((await meter.textContent()).includes('Producido'), 'Meter should say Producido')
+    assert(await meter.locator('[role="progressbar"]').count() === 1, 'Meter needs a progressbar role')
+  })
+
+  await runSuite('Shell: sidebar collapses and remembers it', async () => {
+    const toggle = page.locator('aside button[aria-controls="sidebar-nav"]')
+    assert(await toggle.getAttribute('aria-expanded') === 'true', 'Sidebar should start expanded')
+    await toggle.click()
+    assert(await toggle.getAttribute('aria-expanded') === 'false', 'Toggle should collapse')
+    assert(!(await page.locator('aside nav a .sidebar-label').first().isVisible()), 'Labels should hide when collapsed')
+    const first = page.locator('aside nav a').first()
+    assert((await first.getAttribute('aria-label')) === 'Inicio', 'Collapsed links keep an accessible name')
+    await page.reload()
+    await waitForApp(page)
+    assert(await page.locator('aside button[aria-controls="sidebar-nav"]').getAttribute('aria-expanded') === 'false', 'Collapsed state should persist')
+    await page.locator('aside button[aria-controls="sidebar-nav"]').click()
+  })
+
+  await runSuite('Shell: Ctrl+3 goes to Pedidos', async () => {
+    await page.keyboard.press('Control+3')
+    await page.waitForTimeout(300)
+    assert(page.url().endsWith('#/orders'), `Expected orders, got ${page.url()}`)
+    await page.keyboard.press('Control+1')
+    await page.waitForTimeout(300)
+  })
+
+  await runSuite('Shell: bundled font is loaded', async () => {
+    const ok = await page.evaluate(async () => {
+      await document.fonts.ready
+      return document.fonts.check('16px "Atkinson Hyperlegible Next"') && getComputedStyle(document.body).fontFamily.includes('Atkinson')
+    })
+    assert(ok, 'Atkinson Hyperlegible Next not loaded')
+  })
+
+  // ─── HOME ─────────────────────────────────────────────────────
+  console.log('\n═══════ HOME ═══════\n')
+  await page.goto(BASE_URL + '/#/')
+  await waitForApp(page)
+  await waitForContent(page, 'h2:has-text("Inicio")')
+
+  await runSuite('Home: renders as start page', async () => {
+    assert(await page.locator('h2:has-text("Inicio")').isVisible(), 'Inicio heading not found')
+  })
+
+  await runSuite('Home: week tabs list only weeks with undelivered orders', async () => {
+    const tabs = page.locator('[role="tablist"] [role="tab"]')
+    assert(await tabs.count() === 2, `Expected 2 week tabs, got ${await tabs.count()}`)
+    assert(await tabs.first().getAttribute('aria-selected') === 'true', 'First tab should be selected')
+    assert((await tabs.first().textContent()).includes('12/07'), 'Newest week should be first')
+  })
+
+  await runSuite('Home: arrow keys move between week tabs', async () => {
+    const tabs = page.locator('[role="tablist"] [role="tab"]')
+    await tabs.first().focus()
+    await page.keyboard.press('ArrowRight')
+    assert(await tabs.nth(1).getAttribute('aria-selected') === 'true', 'ArrowRight should select second tab')
+    assert(await page.evaluate(() => document.activeElement?.getAttribute('role')) === 'tab', 'Focus should stay on tabs')
+    await page.keyboard.press('ArrowLeft')
+    assert(await tabs.first().getAttribute('aria-selected') === 'true', 'ArrowLeft should go back')
+  })
+
+  await runSuite('Home: current week undelivered tile', async () => {
+    const tile = page.locator('[data-testid="week-undelivered"]')
+    assert(await tile.isVisible(), 'Tile not found')
+    const value = (await tile.locator('.home-num').textContent()).trim()
+    assert(value === '3', `Tile value should be 3, got ${value}`)
+    assert((await tile.textContent()).includes('3 pendientes · 0 armados'), 'Tile breakdown missing')
+  })
+
+  await runSuite('Home: stale prices tile', async () => {
+    const box = page.locator('[data-testid="stale-box"]')
+    assert(await box.isVisible(), 'Stale box not found')
+    const text = await box.textContent()
+    assert(text.includes('ingredientes') || text.includes('Al día'), `Unexpected stale box: ${text}`)
+  })
+
+  await runSuite('Home: expand category shows dishes', async () => {
+    const cat = page.locator('section[aria-labelledby="home-missing"] button[aria-expanded]').first()
+    await cat.click()
+    await page.waitForTimeout(200)
+    assert(await cat.getAttribute('aria-expanded') === 'true', 'Category did not expand')
+    assert(await page.locator('section[aria-labelledby="home-missing"] li').count() > 0, 'No dish rows shown')
+  })
+
+  await runSuite('Home: deliver one order removes its tab', async () => {
+    await page.locator('section[aria-labelledby="home-undelivered"] button:text-is("Entregado")').first().click()
+    await page.waitForFunction(() => document.querySelectorAll('[role="tablist"] [role="tab"]').length === 1, { timeout: 5000 }).catch(() => {})
+    const tabs = page.locator('[role="tablist"] [role="tab"]')
+    assert(await tabs.count() === 1, `Expected 1 tab left, got ${await tabs.count()}`)
+    assert(await tabs.first().getAttribute('aria-selected') === 'true', 'Remaining tab should be selected')
+  })
+
+  await runSuite('Home: deliver all with confirmation empties panel', async () => {
+    await page.locator('section[aria-labelledby="home-undelivered"] button:has-text("Marcar todos")').click()
+    await page.locator('button:has-text("Marcar entregados")').click()
+    await page.waitForFunction(() => document.body.innerText.includes('Todo entregado'), { timeout: 5000 }).catch(() => {})
+    assert(await page.locator('text=Todo entregado').isVisible(), 'Panel should show Todo entregado')
+  })
+
   // ─── DASHBOARD ───────────────────────────────────────────────
   console.log('\n═══════ DASHBOARD ═══════\n')
-  await page.goto(BASE_URL + '/#/')
+  await page.goto(BASE_URL + '/#/production')
   await waitForApp(page)
   await waitForContent(page, 'button[aria-label*="producido"]')
 
@@ -88,7 +213,7 @@ async function runAll() {
   })
 
   await runSuite('Dashboard: progress bar in bottom bar', async () => {
-    const text = page.locator('text=Producido:').first()
+    const text = page.locator('[data-testid="production-meter"]:has-text("Producido")').first()
     assert(await text.isVisible(), 'Progress text not found')
   })
 
@@ -104,7 +229,7 @@ async function runAll() {
   })
 
   await runSuite('Dashboard: expand dish shows ingredients', async () => {
-    const dishBtn = page.locator('button[aria-expanded]').first()
+    const dishBtn = page.locator('#main-content button[aria-expanded]').first()
     if (await dishBtn.count() > 0 && await dishBtn.isVisible()) {
       await dishBtn.click()
       await page.waitForTimeout(400)
@@ -123,10 +248,10 @@ async function runAll() {
     const cats = page.locator('button:has-text("(Principal"), button:has-text("(Guarnicion"), button:has-text("(Postre"), button:has-text("(Entrada")')
     const catCount = await cats.count()
     if (catCount > 0) {
-      const initialCards = await page.locator('button[aria-expanded]').count()
+      const initialCards = await page.locator('#main-content button[aria-expanded]').count()
       await cats.first().click()
       await page.waitForTimeout(400)
-      const filteredCards = await page.locator('button[aria-expanded]').count()
+      const filteredCards = await page.locator('#main-content button[aria-expanded]').count()
       assert(filteredCards <= initialCards, `Category filtered: ${filteredCards} <= ${initialCards}`)
       await page.locator('button:has-text("Todas")').first().click()
       await page.waitForTimeout(300)
@@ -283,6 +408,29 @@ async function runAll() {
     } else {
       assert(true, 'Add order button disabled (historical view)')
     }
+  })
+
+  await runSuite('Orders: mark order as paid', async () => {
+    await page.goto(BASE_URL + '/#/orders')
+    await page.reload()
+    await waitForApp(page)
+    await waitForContent(page, 'button[aria-label="Marcar como cobrado"]')
+    const before = await page.locator('button[aria-label="Marcar como cobrado"]').count()
+    assert(before > 0, 'No Cobrar buttons found')
+    await page.locator('button[aria-label="Marcar como cobrado"]').first().click()
+    await page.waitForTimeout(400)
+    assert(await page.locator('button[aria-label="Marcar como cobrado"]').count() === before - 1, 'Cobrar button should disappear for paid order')
+    assert(await page.locator('text=Cobrado ✓').count() > 0, 'Cobrado badge not shown')
+  })
+
+  await runSuite('Orders: undo paid asks for confirmation', async () => {
+    const before = await page.locator('button[aria-label="Marcar como cobrado"]').count()
+    await page.locator('button[aria-label="Deshacer cobro"]').first().click()
+    await page.waitForSelector('text=¿Deshacer el cobro', { timeout: 3000 }).catch(() => {})
+    assert(await page.locator('text=¿Deshacer el cobro').isVisible(), 'Confirmation not shown')
+    await page.locator('button:has-text("Deshacer cobro")').last().click()
+    await page.waitForTimeout(400)
+    assert(await page.locator('button[aria-label="Marcar como cobrado"]').count() === before + 1, 'Order should be unpaid again')
   })
 
   // ─── MENU ─────────────────────────────────────────────────────
@@ -615,6 +763,10 @@ async function runAll() {
   await waitForApp(page)
   await waitForContent(page, 'text=Ingresos')
 
+  await runSuite('Analytics: revenue scope note', async () => {
+    assert(await page.locator('text=solo pedidos entregados y cobrados').count() > 0, 'Scope note not found')
+  })
+
   await runSuite('Analytics: stat cards render', async () => {
     assert(await page.locator('text=Pedidos').count() > 0, 'Orders stat not found')
     assert(await page.locator('text=Ingresos').count() > 0, 'Revenue stat not found')
@@ -718,18 +870,18 @@ async function runAll() {
   })
 
   await runSuite('Settings: theme buttons exist', async () => {
-    assert(await page.locator('text=Fondo crema suave, texto oscuro').count() > 0, 'Claro theme not found')
-    assert(await page.locator('text=Fondo negro, texto blanco, alto contraste').count() > 0, 'Oscuro theme not found')
-    assert(await page.locator('text=Colores amigables para daltonismo').count() > 0, 'Daltonico theme not found')
+    assert(await page.locator('text=Fondo gris claro, texto oscuro').count() > 0, 'Claro theme not found')
+    assert(await page.locator('text=Fondo oscuro, texto claro').count() > 0, 'Oscuro theme not found')
+    assert(await page.locator('text=Azul y naranja en lugar de verde y rojo').count() > 0, 'Daltonico theme not found')
   })
 
   await runSuite('Settings: toggle theme', async () => {
-    const oscuroBtn = page.locator('button', { hasText: 'Fondo negro, texto blanco, alto contraste' })
+    const oscuroBtn = page.locator('button', { hasText: 'Fondo oscuro, texto claro' })
     await oscuroBtn.click()
     await page.waitForTimeout(300)
     const pressed = await oscuroBtn.getAttribute('aria-pressed')
     assert(pressed === 'true', `Oscuro should be pressed, got: ${pressed}`)
-    const claroBtn = page.locator('button', { hasText: 'Fondo crema suave, texto oscuro' })
+    const claroBtn = page.locator('button', { hasText: 'Fondo gris claro, texto oscuro' })
     await claroBtn.click()
     await page.waitForTimeout(300)
     assert(true, 'Toggled back to Claro')
@@ -763,7 +915,7 @@ async function runAll() {
   })
 
   await runSuite('Settings: cycle to oscuro theme', async () => {
-    const oscuroBtn = page.locator('button', { hasText: 'Fondo negro, texto blanco, alto contraste' })
+    const oscuroBtn = page.locator('button', { hasText: 'Fondo oscuro, texto claro' })
     if (await oscuroBtn.count() > 0) {
       await oscuroBtn.click()
       await page.waitForTimeout(300)
@@ -787,7 +939,7 @@ async function runAll() {
   })
 
   await runSuite('Settings: cycle back to claro theme', async () => {
-    const claroBtn = page.locator('button', { hasText: 'Fondo crema suave, texto oscuro' })
+    const claroBtn = page.locator('button', { hasText: 'Fondo gris claro, texto oscuro' })
     if (await claroBtn.count() > 0) {
       await claroBtn.click()
       await page.waitForTimeout(300)
@@ -938,7 +1090,7 @@ async function runAll() {
   // ─────────────────────────────────────────────
 
   await runSuite('EMPTY: Dashboard sin pedidos', async () => {
-    await page.goto(`${BASE_URL}/?empty=orders#/`)
+    await page.goto(`${BASE_URL}/?empty=orders#/production`)
     await waitForApp(page)
     await page.waitForFunction(() => document.body.innerText.includes('No hay pedidos para esta semana'), { timeout: 8000 }).catch(() => {})
     const body = await page.evaluate(() => document.body.innerText)
@@ -982,7 +1134,7 @@ async function runAll() {
   // ─────────────────────────────────────────────
 
   await runSuite('ERROR: Dashboard on load', async () => {
-    await page.goto(`${BASE_URL}/?error=getDashboard#/`)
+    await page.goto(`${BASE_URL}/?error=getDashboard#/production`)
     await waitForApp(page)
     await page.waitForSelector('[role="alert"]', { timeout: 8000 }).catch(() => {})
     const banner = page.locator('[role="alert"]')

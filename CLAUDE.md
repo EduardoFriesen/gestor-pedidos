@@ -8,9 +8,11 @@ The imported `AGENTS.md` above is the main project guide: stack, commands, IPC a
 
 ## Testing
 
+- There is no lint script and no linter config. Other scripts not in the AGENTS.md table: `npm run dist:linux`, and `npm run pack` (an unpacked build in `release/`).
 - `node test.js` runs the store unit tests directly against `electron/store.js`, with no Electron and no framework. It writes a temp `piu.test.json`, exits non-zero on failure, and writes `test-report.json` when anything fails. Use `node test.js --verbose` to print passing assertions too.
 - There is no single-test runner. Each test is a plain `testXxx(store, seed)` function called from `main()` at the bottom of `test.js`. To run one, comment out the other calls in `main()`, or add the new function there.
-- E2E tests (`node test-e2e/runner.js`) use Playwright against the Vite dev server at `http://localhost:5173`, so start `npx vite` first. They don't use Electron. Instead, `test-e2e/mock.js` is injected with `addInitScript` and stubs `window.piu.*` with in-memory data.
+- E2E tests (`node test-e2e/runner.js`) use Playwright against the Vite dev server at `http://localhost:5173`, so start `npx vite` first. They don't use Electron. Instead, `test-e2e/mock.js` is injected with `addInitScript` and stubs `window.piu.*` with in-memory data. They write `test-e2e/report.json` and exit non-zero on failure.
+- `test-interactive.mjs` and `test-interactive.py` in the root are old ad-hoc Playwright scripts. The `.mjs` one targets port 5199. They are not part of the main suites.
 - **When you add or rename an IPC function, update all four layers:** `store.js` (plus its `module.exports`), the `main.js` handler, `preload.js`, and `test-e2e/mock.js`. If the mock is missing it, the E2E tests break.
 
 ## Runtime details that span files
