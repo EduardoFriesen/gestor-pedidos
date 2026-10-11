@@ -6,6 +6,10 @@ Funciona offline, sin servidor: todos los datos viven en un archivo JSON local.
 
 ![Análisis](docs/screenshots/analytics.png)
 
+## Descarga
+
+El instalador para Windows de la última versión está en **[Releases › Latest](https://github.com/EduardoFriesen/gestor-pedidos/releases/latest)**. Las novedades de cada versión están en [CHANGELOG.md](CHANGELOG.md) y también se ven dentro de la app, en Ajustes.
+
 ## Funcionalidades
 
 - **Pedidos por semana** (domingo a sábado), con estados pendiente → armado → entregado, envío por día y etiquetas imprimibles.
@@ -59,4 +63,9 @@ npm run dev         # Vite + Electron
 | `npm run dist:win` | Genera el instalador para Windows |
 | `npm run dist:linux` | Genera el paquete para Linux |
 | `node test.js` | Tests unitarios del store |
-| `node test-e2e/runner.js` | Tests E2E (requiere `npx vite` corriendo) |
+| `node test-e2e/runner.js` | Tests E2E (requiere `npx vite` corriendo; otro puerto con `BASE_URL=http://localhost:5174`) |
+
+## Ramas y versiones
+
+- `produccion`: desarrollo. `main`: solo versiones publicadas.
+- Para publicar una versión: subir `version` en `package.json`, agregar su entrada arriba de todo en `CHANGELOG.md`, mergear `produccion` en `main` y pushear el tag `vX.Y.Z` desde `main`. GitHub Actions compila el instalador en Windows y lo publica en Releases con las notas del changelog.
