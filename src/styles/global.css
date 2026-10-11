@@ -1100,6 +1100,8 @@ button:disabled,
 }
 
 .settings-desc { font-size: var(--font-sm); color: var(--text-secondary); }
+.changelog-title { font-size: var(--font-sm); font-weight: 700; margin-top: var(--spacing-sm); }
+.changelog-list { font-size: var(--font-sm); color: var(--text-secondary); line-height: 1.7; padding-left: var(--spacing-md); }
 
 .choices {
   display: grid;

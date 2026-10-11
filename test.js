@@ -742,6 +742,22 @@ function testRouteCache(store) {
   assert(store.getRouteCache(1) === null && store.getRouteCache(2)?.key === 'k2', 'New week replaces the previous cache')
 }
 
+function testChangelog() {
+  log('\n--- testChangelog ---')
+  const { parseChangelog } = require('./src/utils/changelog.js')
+  const md = '# Novedades\n\nIntro.\n\n## 1.1.0 — 2026-10-11\n\n- Uno\n- Dos con `código`\n\n## 1.0.0 — 2026-07-13\n\n- Inicial\n'
+  const releases = parseChangelog(md)
+  assert(releases.length === 2, 'Parses one entry per version')
+  assert(releases[0].version === '1.1.0' && releases[0].date === '2026-10-11', 'Reads version and date')
+  assert(JSON.stringify(releases[0].items) === JSON.stringify(['Uno', 'Dos con `código`']), 'Reads bullet items')
+  assert(releases[1].items.length === 1, 'Items stay within their version')
+  assert(parseChangelog('').length === 0, 'Empty changelog yields no entries')
+
+  const real = parseChangelog(fs.readFileSync(path.join(__dirname, 'CHANGELOG.md'), 'utf8'))
+  assert(real[0]?.version === require('./package.json').version, 'CHANGELOG.md has an entry for the package.json version')
+  assert(real.every(r => r.items.length > 0), 'Every CHANGELOG.md entry has a summary')
+}
+
 function testRouteCacheHelpers() {
   log('\n--- testRouteCacheHelpers ---')
   const { routeCacheKey, serializeRoute, restoreRoute } = require('./src/utils/routeCache.js')
@@ -1719,6 +1735,7 @@ function main() {
   testStartLocation(store)
   testRouteCache(store)
   testRouteCacheHelpers()
+  testChangelog()
   testAnalyticsDateRangeAndAverages()
   testOrderSnapshotOnEdit()
   testNextWeek()

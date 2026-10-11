@@ -2,9 +2,25 @@ import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useToast } from '../components/ToastProvider'
 import { geocodeAddress, reverseGeocode, getAutoLocation, clearDeviceLocationCache } from '../utils/geocode'
 import PageHeader from '../components/ui/PageHeader'
+import { formatDate } from '../utils/format'
+import { parseChangelog } from '../utils/changelog'
+import { version } from '../../package.json'
+import changelogMd from '../../CHANGELOG.md?raw'
 
 const RouteMap = lazy(() => import('../components/RouteMap'))
 const NO_DELIVERIES = []
+
+const releases = parseChangelog(changelogMd)
+const current = releases.find(r => r.version === version)
+const older = releases.filter(r => r !== current)
+
+function ReleaseItems({ items }) {
+  return (
+    <ul className="changelog-list">
+      {items.map((item, i) => <li key={i}>{item}</li>)}
+    </ul>
+  )
+}
 
 const themes = [
   { id: 'claro', label: 'Claro', desc: 'Fondo gris claro, texto oscuro', swatch: ['#EEF0EC', '#FFFFFF', '#2D6A4F'] },
@@ -201,11 +217,27 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
         <div className="card settings-section">
           <h3>Acerca de</h3>
           <p className="settings-desc">
-            <strong>Piu</strong> v1.0.0 — Gestión de producción para cocina comercial.
+            <strong>Piu</strong> v{version} — Gestión de producción para cocina comercial.
           </p>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-            Diseñada para ser accesible y fácil de usar.
-          </p>
+          {current && (
+            <>
+              <h4 className="changelog-title">
+                Novedades de esta versión{current.date && ` (${formatDate(current.date)})`}
+              </h4>
+              <ReleaseItems items={current.items} />
+            </>
+          )}
+          {older.length > 0 && (
+            <details className="list-card-details">
+              <summary>Versiones anteriores</summary>
+              {older.map(r => (
+                <section key={r.version} aria-label={`Versión ${r.version}`}>
+                  <h4 className="changelog-title">v{r.version}{r.date && ` — ${formatDate(r.date)}`}</h4>
+                  <ReleaseItems items={r.items} />
+                </section>
+              ))}
+            </details>
+          )}
         </div>
       </div>
     </div>

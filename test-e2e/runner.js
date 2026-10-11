@@ -3,7 +3,7 @@ const fs = require('fs')
 const path = require('path')
 
 const MOCK_CODE = fs.readFileSync(path.join(__dirname, 'mock.js'), 'utf8')
-const BASE_URL = 'http://localhost:5173'
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5173'
 
 const results = { passed: [], failed: [], total: 0 }
 
@@ -979,6 +979,16 @@ async function runAll() {
     assert(await themeChoices.count() === 3, `Expected 3 theme choices, got ${await themeChoices.count()}`)
     assert(await themeChoices.first().locator('.choice-swatch span').count() === 3, 'Theme choice needs a 3-color swatch')
     assert(await page.locator('[aria-label="Tamaño de texto"] .choice[aria-pressed]').count() === 3, 'Expected 3 size choices')
+  })
+
+  await runSuite('Settings: muestra la versión instalada y sus novedades', async () => {
+    const { version } = require('../package.json')
+    assert(await page.locator(`text=v${version} — Gestión`).count() === 1, `Version v${version} not shown`)
+    assert(await page.locator('text=Novedades de esta versión').count() === 1, 'Current release notes missing')
+    assert(await page.locator('.changelog-list li').first().isVisible(), 'Release notes need at least one visible item')
+    const older = page.locator('summary', { hasText: 'Versiones anteriores' })
+    await older.click()
+    assert(await page.locator('details[open] .changelog-list').count() > 0, 'Older releases should expand')
   })
 
   await runSuite('Settings: modo macro es un interruptor', async () => {
