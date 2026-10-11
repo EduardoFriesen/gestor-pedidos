@@ -2,6 +2,16 @@
 
 Cada versión publicada tiene su entrada, la más nueva arriba. Ajustes muestra la sección que corresponde a la versión instalada y las notas del Release salen de acá.
 
+## 1.4.0 — 2026-10-11
+
+- Análisis reorganizado en 6 pestañas: Ventas, Platos, Clientes, Finanzas, Planificación y Operación.
+- Finanzas: cobranza pendiente por cliente, platos que perdieron margen con precio sugerido e ingredientes que más pesan en el costo.
+- Clientes: los que dejaron de pedir (con mensaje por WhatsApp), clientes fieles y ocasionales, platos que se piden juntos y ventas por zona.
+- Planificación: pronóstico de la semana por plato, compra proyectada en PDF y plata perdida por sobreproducción.
+- Operación: cumplimiento de armado y entrega por semana y horario en que se cargan los pedidos.
+- Gráficos nuevos, más claros y con tooltips; tablas con scroll en lugar de páginas.
+- Ajustes muestra la versión instalada y sus novedades.
+
 ## 1.3.0 — 2026-10-05
 
 - Nueva pantalla de Inicio: pedidos sin entregar de semanas anteriores, lo que falta producir y avisos de precios.
