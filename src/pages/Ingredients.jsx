@@ -5,6 +5,9 @@ import ConfirmPopup from '../components/ConfirmPopup'
 import { getCompatibleUnits, convertValue } from '../utils/units'
 import { useToast } from '../components/ToastProvider'
 import { fmtMoney, fmtUnitCost, formatQty, parseDecimal } from '../utils/format'
+import PageHeader from '../components/ui/PageHeader'
+import MetricStrip from '../components/ui/MetricStrip'
+import Segmented from '../components/ui/Segmented'
 
 const UNITS = ['kg', 'g', 'l', 'ml', 'uni', 'doc', 'cda', 'cdta', 'taza', 'pizca']
 
@@ -325,17 +328,10 @@ export default function Ingredients() {
 
   return (
     <div>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 'var(--spacing-lg)'
-      }}>
-        <h2>Ingredientes</h2>
-        <button className="btn btn-primary" onClick={openNew} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
-          + Ingrediente
-        </button>
-      </div>
+      <PageHeader
+        title="Ingredientes"
+        actions={<button className="btn btn-primary" onClick={openNew}>+ Ingrediente</button>}
+      />
 
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
@@ -363,25 +359,16 @@ export default function Ingredients() {
         )
       })()}
 
-      <div style={{
-        display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)',
-        flexWrap: 'wrap'
-      }}>
-        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Ingredientes</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{ingredients.filter(i => !i.subIngredients || i.subIngredients.length === 0).length}</p>
-        </div>
-        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>Sub-productos</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--accent)' }}>{ingredients.filter(i => i.subIngredients && i.subIngredients.length > 0).length}</p>
-        </div>
-        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Total</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{ingredients.length}</p>
-        </div>
-      </div>
+      <MetricStrip
+        label="Resumen de ingredientes"
+        items={[
+          { label: 'Ingredientes', value: ingredients.filter(i => !i.subIngredients || i.subIngredients.length === 0).length },
+          { label: 'Sub-productos', value: ingredients.filter(i => i.subIngredients && i.subIngredients.length > 0).length, tone: 'accent' },
+          { label: 'Total', value: ingredients.length }
+        ]}
+      />
 
-      <div style={{ marginBottom: 'var(--spacing-md)' }}>
+      <div className="toolbar">
         <input
           type="text"
           placeholder="Buscar ingrediente o categoría..."
@@ -389,26 +376,19 @@ export default function Ingredients() {
           onChange={e => setSearch(e.target.value)}
           key="search-ingredients"
           aria-label="Buscar ingrediente"
-          style={{ width: '100%', maxWidth: '400px' }}
         />
+        {categories.length > 0 && (
+          <Segmented
+            label="Filtrar por categoría"
+            options={[
+              { value: null, label: 'Todas' },
+              ...categories.map(c => ({ value: c, label: c, count: ingredients.filter(i => i.category === c).length }))
+            ]}
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+          />
+        )}
       </div>
-
-      {categories.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)' }}>
-          <button className={`btn btn-sm ${!categoryFilter ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCategoryFilter(null)}>
-            Todas
-          </button>
-          {categories.map(c => (
-            <button
-              key={c}
-              className={`btn btn-sm ${categoryFilter === c ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setCategoryFilter(categoryFilter === c ? null : c)}
-            >
-              {c} ({ingredients.filter(i => i.category === c).length})
-            </button>
-          ))}
-        </div>
-      )}
 
       {filtered.length === 0 ? (
         <div className="empty-state card">
@@ -416,42 +396,20 @@ export default function Ingredients() {
           <p>{search || categoryFilter ? 'Probá con otra búsqueda o categoría.' : 'Usá "+ Ingrediente" para cargar ingredientes y sus costos unitarios.'}</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+        <ul className="list">
           {filtered.map(ing => {
             const isComp = ing.subIngredients && ing.subIngredients.length > 0
             return (
-              <div key={ing.id} className="card" style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 'var(--spacing-md)',
-                opacity: ing.is_active ? 1 : 0.5
-              }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                    <h3 style={{ fontSize: 'var(--font-lg)', margin: 0 }}>
-                      {ing.name}
-                    </h3>
-                    {ing.category && (
-                      <span style={{
-                        background: 'var(--primary-light)',
-                        padding: '2px var(--spacing-sm)',
-                        borderRadius: '100px',
-                        fontSize: 'var(--font-sm)',
-                        fontWeight: 600
-                      }}>
-                        {ing.category}
-                      </span>
-                    )}
-                    {!ing.is_active && (
-                      <span className="badge badge-warning" style={{ fontSize: 'var(--font-sm)' }}>
-                        Inactivo
-                      </span>
-                    )}
+              <li key={ing.id} className={`list-card${ing.is_active ? '' : ' is-inactive'}`}>
+                <div className="list-card-body">
+                  <div className="list-card-title">
+                    <h3>{ing.name}</h3>
+                    {ing.category && <span className="tag">{ing.category}</span>}
+                    {!ing.is_active && <span className="badge badge-warning">Inactivo</span>}
                     {priceReview && (() => {
                       const ri = priceReview.ingredients.find(i => i.id === ing.id)
                       return ri?.isStale ? (
-                        <span className="badge badge-warning" style={{ fontSize: 'var(--font-sm)' }}>
+                        <span className="badge badge-warning">
                           Hace {ri.daysSinceUpdate} días
                           {ri.staleSubNames && ri.staleSubNames.length > 0 && (
                             <span style={{ fontWeight: 400, marginLeft: '4px' }}>
@@ -462,39 +420,30 @@ export default function Ingredients() {
                       ) : null
                     })()}
                     {isComp && (
-                      <span className="badge badge-info" style={{ fontSize: 'var(--font-sm)' }}>
+                      <span className="badge badge-info">
                         Sub-producto
                       </span>
                     )}
                   </div>
-                  <div style={{
-                    display: 'flex',
-                    gap: 'var(--spacing-md)',
-                    marginTop: 'var(--spacing-xs)',
-                    fontSize: 'var(--font-body)',
-                    color: 'var(--text-secondary)'
-                  }}>
-                    <span>Unidad: <strong>{ing.unit}</strong></span>
+                  <div className="list-card-meta">
                     <span>
-                      Costo: <strong>{fmtUnitCost(ing.cost)}</strong> / {ing.unit}
+                      Costo <strong>{fmtUnitCost(ing.cost)}</strong> / {ing.unit}
                       {isComp && <span style={{ fontStyle: 'italic', marginLeft: '4px' }}>(calculado)</span>}
                     </span>
                     {ing.package_qty > 0 && ing.package_price > 0 && (
-                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                        Paquete de {formatQty(ing.package_qty, ing.unit)} a {fmtMoney(ing.package_price, 2)}
-                      </span>
+                      <span>Paquete de {formatQty(ing.package_qty, ing.unit)} a {fmtMoney(ing.package_price, 2)}</span>
                     )}
                   </div>
                   {isComp && (
-                    <details style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                    <details className="list-card-details">
+                      <summary>
                         Sub-ingredientes ({ing.subIngredients.length})
                       </summary>
                       <div style={{ marginTop: 'var(--spacing-xs)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         {ing.subIngredients.map((si, i) => {
                           const sub = getIngInfo(si.ingredientId)
                           return (
-                            <span key={i} style={{ fontSize: 'var(--font-sm)' }}>
+                            <span key={i}>
                               {sub ? `${sub.name}: ${formatQty(si.quantity, sub.unit)}` : '(eliminado)'}
                               {sub ? ` (${fmtMoney(sub.cost * si.quantity, 2)})` : ''}
                             </span>
@@ -504,11 +453,9 @@ export default function Ingredients() {
                     </details>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
+                <div className="list-card-actions">
                     {justUpdatedId === ing.id ? (
-                      <button className="btn btn-sm btn-icon-confirm" disabled>
-                        ✓ Confirmado
-                      </button>
+                      <span className="status-ok" role="status">✓ Confirmado</span>
                     ) : priceReview && (() => {
                       const ri = priceReview.ingredients.find(i => i.id === ing.id)
                       return ri?.isStale ? (
@@ -520,10 +467,10 @@ export default function Ingredients() {
                   <button className="btn btn-sm btn-icon-edit" onClick={() => openEdit(ing)} aria-label="Editar ingrediente">Editar</button>
                   <button className="btn btn-sm btn-icon-delete" onClick={() => handleDelete(ing.id)} aria-label="Eliminar ingrediente">Eliminar</button>
                 </div>
-              </div>
+              </li>
             )
           })}
-        </div>
+        </ul>
       )}
 
       <Modal

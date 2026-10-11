@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useToast } from '../components/ToastProvider'
 import { geocodeAddress, reverseGeocode, getAutoLocation, clearDeviceLocationCache } from '../utils/geocode'
+import PageHeader from '../components/ui/PageHeader'
 
 const RouteMap = lazy(() => import('../components/RouteMap'))
 const NO_DELIVERIES = []
 
 const themes = [
-  { id: 'claro', label: '☀️ Claro', desc: 'Fondo gris claro, texto oscuro' },
-  { id: 'oscuro', label: '🌙 Oscuro', desc: 'Fondo oscuro, texto claro' },
-  { id: 'daltonico', label: '🎨 Daltonico', desc: 'Azul y naranja en lugar de verde y rojo' }
+  { id: 'claro', label: 'Claro', desc: 'Fondo gris claro, texto oscuro', swatch: ['#EEF0EC', '#FFFFFF', '#2D6A4F'] },
+  { id: 'oscuro', label: 'Oscuro', desc: 'Fondo oscuro, texto claro', swatch: ['#121513', '#1B1F1C', '#6FC39A'] },
+  { id: 'daltonico', label: 'Daltónico', desc: 'Azul y naranja en lugar de verde y rojo', swatch: ['#EEF0EC', '#FFFFFF', '#1F5FA8'] }
+]
+
+const FONT_SIZES = [
+  { id: 'small', label: 'Pequeña', desc: 'Textos más compactos', sample: '0.8em' },
+  { id: 'medium', label: 'Mediana', desc: 'Tamaño estándar', sample: '1em' },
+  { id: 'large', label: 'Grande', desc: 'Textos más grandes', sample: '1.25em' }
 ]
 
 function getThreshold() {
@@ -80,112 +87,89 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
 
   return (
     <div>
-      <h2 style={{ marginBottom: 'var(--spacing-lg)' }}>Configuración</h2>
+      <PageHeader title="Ajustes" />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)', maxWidth: '100%' }}>
-        <div className="card">
-          <h3 style={{ marginBottom: 'var(--spacing-md)' }}>Tema visual</h3>
-          <div style={{ display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
+      <div className="settings">
+        <section className="card settings-section" aria-labelledby="set-theme">
+          <h3 id="set-theme">Tema visual</h3>
+          <div className="choices" role="group" aria-label="Tema visual">
             {themes.map(t => (
               <button
                 key={t.id}
-                className={theme === t.id ? 'btn btn-primary btn-lg' : 'btn btn-outline btn-lg'}
+                className="choice"
                 onClick={() => setTheme(t.id)}
-                style={{
-                  flex: 1,
-                  minWidth: '180px',
-                  flexDirection: 'column',
-                  gap: 'var(--spacing-xs)',
-                  textAlign: 'center'
-                }}
                 aria-pressed={theme === t.id}
               >
-                <span style={{ fontSize: 'var(--font-lg)' }}>{t.label.split(' ')[0]}</span>
-                <span style={{ fontSize: 'var(--font-sm)', fontWeight: 400 }}>
-                  {t.desc}
+                <span className="choice-swatch" aria-hidden="true">
+                  {t.swatch.map(c => <span key={c} style={{ background: c }} />)}
                 </span>
+                <span className="choice-label">{t.label}</span>
+                <span className="choice-desc">{t.desc}</span>
               </button>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div className="card">
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 'var(--spacing-md)'
-          }}>
-            <div>
-              <h3 style={{ marginBottom: 'var(--spacing-xs)' }}>Modo Macro</h3>
-              <p style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }}>
-                Agranda todos los textos y botones al 200% para facilitar la lectura.
-              </p>
-            </div>
-            <button
-              className={macroMode ? 'btn btn-success btn-lg' : 'btn btn-outline btn-lg'}
-              onClick={() => setMacroMode(!macroMode)}
-              style={{ minWidth: '160px' }}
-              aria-pressed={macroMode}
-            >
-              {macroMode ? 'Activo' : 'Inactivo'}
-            </button>
+        <section className="card settings-section settings-row" aria-labelledby="set-macro">
+          <div>
+            <h3 id="set-macro">Modo macro</h3>
+            <p className="settings-desc">Agranda todos los textos y botones al 200% para facilitar la lectura.</p>
           </div>
-        </div>
+          <button
+            role="switch"
+            aria-checked={macroMode}
+            aria-label="Modo macro"
+            className="switch"
+            onClick={() => setMacroMode(!macroMode)}
+          >
+            <span className="switch-track" aria-hidden="true"><span className="switch-thumb" /></span>
+            <span className="switch-text">{macroMode ? 'Activo' : 'Inactivo'}</span>
+          </button>
+        </section>
 
-        <div className="card">
-          <h3 style={{ marginBottom: 'var(--spacing-md)' }}>Tamaño de texto</h3>
-          <div style={{ display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
-            {[
-              { id: 'small', label: 'Pequeña', desc: 'Textos más compactos' },
-              { id: 'medium', label: 'Mediana', desc: 'Tamaño estándar' },
-              { id: 'large', label: 'Grande', desc: 'Textos más grandes' }
-            ].map(s => (
+        <section className="card settings-section" aria-labelledby="set-size">
+          <h3 id="set-size">Tamaño de texto</h3>
+          <div className="choices" role="group" aria-label="Tamaño de texto">
+            {FONT_SIZES.map(s => (
               <button
                 key={s.id}
-                className={fontSize === s.id ? 'btn btn-primary btn-lg' : 'btn btn-outline btn-lg'}
+                className="choice"
                 onClick={() => setFontSize(s.id)}
-                style={{
-                  flex: 1,
-                  minWidth: '150px',
-                  flexDirection: 'column',
-                  gap: 'var(--spacing-xs)',
-                  textAlign: 'center'
-                }}
                 aria-pressed={fontSize === s.id}
               >
-                <span style={{ fontSize: 'var(--font-body)' }}>{s.label}</span>
-                <span style={{ fontSize: 'var(--font-xs)', fontWeight: 400 }}>{s.desc}</span>
+                <span className="choice-sample" aria-hidden="true" style={{ fontSize: s.sample }}>Aa</span>
+                <span className="choice-label">{s.label}</span>
+                <span className="choice-desc">{s.desc}</span>
               </button>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div className="card">
-          <h3 style={{ marginBottom: 'var(--spacing-md)' }}>Actualización de precios</h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', flexWrap: 'wrap' }}>
-            <p style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)', flex: 1 }}>
-              Alertar si un precio de ingrediente no se actualizó en los últimos
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-              <input
-                type="number"
-                min="1"
-                max="365"
-                value={threshold}
-                onChange={handleThresholdChange}
-                style={{ width: '120px', textAlign: 'center', fontSize: 'var(--font-xl)' }}
-              />
-              <span style={{ fontWeight: 700 }}>días</span>
-            </div>
+        <section className="card settings-section settings-row" aria-labelledby="set-prices">
+          <div>
+            <h3 id="set-prices">Actualización de precios</h3>
+            <p className="settings-desc" id="set-prices-desc">Alertar si un precio de ingrediente no se actualizó en los últimos</p>
           </div>
-        </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+            <input
+              type="number"
+              min="1"
+              max="365"
+              value={threshold}
+              onChange={handleThresholdChange}
+              aria-describedby="set-prices-desc"
+              aria-label="Días sin actualizar"
+              style={{ width: '110px', textAlign: 'center', fontSize: 'var(--font-lg)', fontWeight: 800 }}
+            />
+            <span style={{ fontWeight: 700 }}>días</span>
+          </div>
+        </section>
 
         <StartLocationCard />
 
-        <div className="card">
-          <h3 style={{ marginBottom: 'var(--spacing-md)' }}>Backup y Restauración</h3>
-          <p style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+        <section className="card settings-section">
+          <h3>Backup y restauración</h3>
+          <p className="settings-desc">
             Exportá todos los datos como archivo JSON para migrar a otra PC o restaurar después de un problema.
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
@@ -196,14 +180,14 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
               {importing ? 'Importando...' : '↑ Importar Datos'}
             </button>
           </div>
-        </div>
+        </section>
 
-        <div className="card">
-          <h3 style={{ marginBottom: 'var(--spacing-md)' }}>Ayuda</h3>
+        <div className="card settings-section">
+          <h3>Ayuda</h3>
           <ul style={{
-            fontSize: 'var(--font-body)',
+            fontSize: 'var(--font-sm)',
             color: 'var(--text-secondary)',
-            lineHeight: 2,
+            lineHeight: 1.8,
             paddingLeft: 'var(--spacing-md)'
           }}>
             <li><strong>Dashboard (Producción):</strong> Presioná <strong>+1</strong> cada vez que produzcas un plato. La barra de progreso se actualiza al instante.</li>
@@ -214,9 +198,9 @@ export default function Settings({ theme, setTheme, macroMode, setMacroMode, fon
           </ul>
         </div>
 
-        <div className="card">
-          <h3 style={{ marginBottom: 'var(--spacing-md)' }}>Acerca de</h3>
-          <p style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }}>
+        <div className="card settings-section">
+          <h3>Acerca de</h3>
+          <p className="settings-desc">
             <strong>Piu</strong> v1.0.0 — Gestión de producción para cocina comercial.
           </p>
           <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
@@ -295,9 +279,9 @@ function StartLocationCard() {
   const previewCoords = useMemo(() => preview ? { lat: preview.lat, lng: preview.lng } : null, [preview?.lat, preview?.lng])
 
   return (
-    <div className="card">
-      <h3 style={{ marginBottom: 'var(--spacing-md)' }}>Punto de partida</h3>
-      <p style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+    <div className="card settings-section">
+      <h3>Punto de partida</h3>
+      <p className="settings-desc">
         {saved
           ? `La Hoja de Ruta arranca en: ${saved.address}${saved.city ? ` (${saved.city})` : ''}`
           : 'Sin configurar: se usa la ubicación detectada automáticamente, que puede tener varios km de error.'}

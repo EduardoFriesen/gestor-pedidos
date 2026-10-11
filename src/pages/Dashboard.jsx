@@ -5,6 +5,17 @@ import { SkeletonCard } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
 import { useToast } from '../components/ToastProvider'
 import { formatQty } from '../utils/format'
+import PageHeader from '../components/ui/PageHeader'
+import MetricStrip from '../components/ui/MetricStrip'
+import Segmented from '../components/ui/Segmented'
+
+function Chevron({ open }) {
+  return (
+    <svg className={`chevron${open ? ' is-open' : ''}`} viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
 export default function Dashboard() {
   const showToast = useToast()
@@ -165,29 +176,27 @@ export default function Dashboard() {
     <div>
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 'var(--spacing-lg)'
-      }}>
-        <div>
-          <h2>Producción Semanal</h2>
-          <p style={{ fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }}>
-            {formatDate(week.week_start)} - {formatDate(week.week_end)}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-          <button className="btn btn-outline btn-sm" onClick={handlePrintShopping}>
-            Lista Compras
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={handlePrintProduction}>
-            Hoja Producción
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Producción semanal"
+        subtitle={`${formatDate(week.week_start)} – ${formatDate(week.week_end)}`}
+        actions={
+          <>
+            <button className="btn btn-outline btn-sm" onClick={handlePrintShopping}>Lista Compras</button>
+            <button className="btn btn-outline btn-sm" onClick={handlePrintProduction}>Hoja Producción</button>
+          </>
+        }
+      />
 
-      <div style={{ marginBottom: 'var(--spacing-md)' }}>
+      <MetricStrip
+        label="Resumen de producción"
+        items={[
+          { label: 'Unidades pedidas', value: totals.total },
+          { label: 'Producido', value: totals.produced },
+          { label: 'Sobreproducción', value: totals.overproduction, tone: totals.overproduction > 0 ? 'danger' : 'muted' }
+        ]}
+      />
+
+      <div className="toolbar">
         <input
           type="text"
           placeholder="Buscar por plato o categoría..."
@@ -195,176 +204,76 @@ export default function Dashboard() {
           onChange={e => setSearch(e.target.value)}
           key="search-dashboard"
           aria-label="Buscar plato"
-          style={{ width: '100%', maxWidth: '400px' }}
         />
-      </div>
-
-      {categoryList.length > 0 && (
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 'var(--spacing-sm)',
-          marginBottom: 'var(--spacing-md)'
-        }}>
-          <button
-            className={`btn btn-sm ${!selectedCategory ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setSelectedCategory(null)}
-          >
-            Todas ({dishes.length})
-          </button>
-          {categoryList.map(cat => {
-            const active = selectedCategory === cat.name
-            const pct = cat.total > 0 ? Math.min(100, Math.round((cat.produced / cat.total) * 100)) : 0
-            return (
-              <button
-                key={cat.name}
-                className={`btn btn-sm ${active ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setSelectedCategory(active ? null : cat.name)}
-                style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
-              >
-                <span>{cat.name}</span>
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'var(--bg-hover)',
-                  borderRadius: '999px',
-                  padding: '0 6px',
-                  fontSize: 'var(--font-sm)',
-                  fontWeight: 700,
-                  minWidth: '20px',
-                  height: '20px'
-                }}>
-                  {cat.count}
-                </span>
-                <div style={{
-                  width: '40px',
-                  height: '8px',
-                  background: 'var(--border)',
-                  borderRadius: '100px',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{
-                    width: `${pct}%`,
-                    height: '100%',
-                    background: pct >= 100 ? 'var(--success)' : 'var(--primary)',
-                    borderRadius: '100px',
-                    transition: 'width 0.3s ease'
-                  }} />
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      <div style={{
-        display: 'flex',
-        gap: 'var(--spacing-md)',
-        marginBottom: 'var(--spacing-md)',
-        flexWrap: 'wrap'
-      }}>
-        <div className="card" style={{ flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Unidades pedidas</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{totals.total}</p>
-        </div>
-        <div className="card" style={{ flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Producido</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{totals.produced}</p>
-        </div>
-        <div className="card" style={{
-          flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)',
-          borderColor: totals.overproduction > 0 ? 'var(--danger)' : undefined
-        }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: totals.overproduction > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
-            Sobreproducción
-          </p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: totals.overproduction > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
-            {totals.overproduction}
-          </p>
-        </div>
+        {categoryList.length > 0 && (
+          <Segmented
+            label="Filtrar por categoría"
+            value={selectedCategory}
+            onChange={setSelectedCategory}
+            options={[
+              { value: null, label: 'Todas', count: dishes.length },
+              ...categoryList.map(cat => {
+                const pct = cat.total > 0 ? Math.min(100, Math.round((cat.produced / cat.total) * 100)) : 0
+                return {
+                  value: cat.name,
+                  label: (
+                    <>
+                      {cat.name}
+                      <span className={`mini-progress${pct >= 100 ? ' is-done' : ''}`} aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>
+                    </>
+                  ),
+                  count: cat.count
+                }
+              })
+            ]}
+          />
+        )}
       </div>
 
       {subProducts.length > 0 && (
-        <div style={{
-          marginBottom: 'var(--spacing-md)',
-          padding: 'var(--spacing-sm) var(--spacing-md)',
-          background: 'var(--primary-light)',
-          borderRadius: 'var(--radius)'
-        }}>
+        <div className="disclosure-panel">
           <button
             type="button"
+            className="disclosure"
             onClick={() => setShowSubProducts(!showSubProducts)}
             aria-expanded={showSubProducts}
-            style={{ display: 'block', fontSize: 'var(--font-sm)', fontWeight: 600, marginBottom: 'var(--spacing-sm)', cursor: 'pointer', userSelect: 'none', background: 'none', border: 'none', color: 'inherit', padding: 0, width: '100%', textAlign: 'left' }}
           >
-            {showSubProducts ? '▾' : '▸'} Sub-productos
+            <Chevron open={showSubProducts} />
+            Sub-productos
+            <span className="segmented-count">{subProducts.length}</span>
           </button>
           {showSubProducts && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+            <ul className="disclosure-body">
               {subProducts.map(sp => (
-                <button
-                  type="button"
-                  key={sp.id}
-                  onClick={() => setExpandedSub(expandedSub === sp.id ? null : sp.id)}
-                  aria-expanded={expandedSub === sp.id}
-                  style={{
-                    background: 'var(--bg)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    padding: 'var(--spacing-sm) var(--spacing-md)',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                    color: 'inherit',
-                    fontSize: 'inherit',
-                    fontFamily: 'inherit',
-                    textAlign: 'left',
-                    width: '100%',
-                    display: 'block'
-                  }}
-                >
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontWeight: 600,
-                    fontSize: 'var(--font-body)'
-                  }}>
+                <li key={sp.id}>
+                  <button
+                    type="button"
+                    className="subproduct"
+                    onClick={() => setExpandedSub(expandedSub === sp.id ? null : sp.id)}
+                    aria-expanded={expandedSub === sp.id}
+                  >
                     <span>
-                      {sp.name}: falta {formatQty(sp.remaining ?? sp.total, sp.unit)}
-                      <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> de {formatQty(sp.total, sp.unit)}</span>
+                      <strong>{sp.name}</strong>: falta {formatQty(sp.remaining ?? sp.total, sp.unit)}
+                      <span className="muted"> de {formatQty(sp.total, sp.unit)}</span>
                     </span>
-                    <span style={{
-                      fontSize: 'var(--font-sm)',
-                      color: 'var(--text-secondary)',
-                      transform: expandedSub === sp.id ? 'rotate(180deg)' : 'none',
-                      transition: 'transform 0.15s'
-                    }}>▾</span>
-                  </div>
+                    <Chevron open={expandedSub === sp.id} />
+                  </button>
                   {expandedSub === sp.id && (
-                    <div style={{
-                      marginTop: 'var(--spacing-sm)',
-                      paddingTop: 'var(--spacing-sm)',
-                      borderTop: '1px solid var(--border)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 'var(--spacing-xs)',
-                      fontSize: 'var(--font-sm)'
-                    }}>
+                    <dl className="subproduct-breakdown">
                       {sp.breakdown.map(b => (
-                        <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-secondary)' }}>{b.name}</span>
-                          <span style={{ fontWeight: 600 }}>
+                        <div key={b.name}>
+                          <dt>{b.name}</dt>
+                          <dd>
                             {formatQty(b.remaining ?? b.total, b.unit)}
-                            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> de {formatQty(b.total, b.unit)}</span>
-                          </span>
+                            <span className="muted"> de {formatQty(b.total, b.unit)}</span>
+                          </dd>
                         </div>
                       ))}
-                    </div>
+                    </dl>
                   )}
-                </button>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
       )}
@@ -375,7 +284,7 @@ export default function Dashboard() {
           <p>{search ? 'Probá con otro término de búsqueda.' : selectedCategory ? 'No hay platos en esta categoría con pedidos.' : 'Andá a la sección Pedidos para registrar órdenes. La producción se organiza automáticamente acá.'}</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+        <ul className="list">
           {sortedDishes.map(dish => {
             const remaining = dish.total_ordered - dish.total_produced
             const done = dish.total_produced >= dish.total_ordered && dish.total_ordered > 0
@@ -383,174 +292,84 @@ export default function Dashboard() {
               ? Math.min(100, Math.round((dish.total_produced / dish.total_ordered) * 100))
               : 0
 
-            let statusColor = 'var(--text-secondary)'
-            let statusBg = 'var(--bg-hover)'
-            let statusText = 'Sin pedidos'
-            if (dish.total_ordered > 0) {
-              if (done) {
-                statusColor = 'var(--success)'
-                statusBg = 'var(--success-light)'
-                statusText = '✓ Completado'
-              } else if (dish.total_produced > 0) {
-                statusColor = 'var(--warning)'
-                statusBg = 'var(--warning-light)'
-                statusText = 'En producción'
-              } else {
-                statusColor = 'var(--accent)'
-                statusBg = 'var(--accent-light)'
-                statusText = 'Pendiente'
-              }
-            }
+            const status = dish.total_ordered === 0
+              ? { text: 'Sin pedidos', badge: '' }
+              : done
+                ? { text: '✓ Completado', badge: 'badge-success' }
+                : dish.total_produced > 0
+                  ? { text: 'En producción', badge: 'badge-warning' }
+                  : { text: 'Pendiente', badge: 'badge-accent' }
 
             return (
-              <div key={dish.id} className="card" style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--spacing-sm)'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 'var(--spacing-md)'
-                }}>
-                    <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+              <li key={dish.id} className={`prod-card${done ? ' is-done' : ''}`}>
+                <div className="prod-card-head">
+                  <div className="list-card-title">
+                    <h3>
                       <button
                         type="button"
-                        style={{ margin: 0, fontSize: 'var(--font-lg)', cursor: 'pointer', userSelect: 'none', background: 'none', border: 'none', color: 'inherit', fontWeight: 700, padding: 0, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}
+                        className="prod-card-toggle"
                         onClick={() => setExpandedDish(expandedDish === dish.id ? null : dish.id)}
                         aria-expanded={expandedDish === dish.id}
                       >
-                        {expandedDish === dish.id ? '▾' : '▸'} {dish.name}
+                        <Chevron open={expandedDish === dish.id} />
+                        {dish.name}
                       </button>
-                      <span className={`badge ${done ? 'badge-success' : dish.total_produced > 0 ? 'badge-warning' : dish.total_ordered > 0 ? 'badge-warning' : ''}`}
-                        style={{
-                          background: statusBg,
-                          color: statusColor,
-                          fontSize: 'var(--font-sm)',
-                          padding: '4px var(--spacing-sm)'
-                        }}>
-                        {statusText}
-                      </span>
-                      {dish.overproduction > 0 && (
-                        <span className="badge" style={{
-                          background: 'var(--danger-light)',
-                          color: 'var(--danger)',
-                          fontSize: 'var(--font-sm)',
-                          padding: '4px var(--spacing-sm)'
-                        }}>
-                          Sobró {dish.overproduction}
-                        </span>
-                      )}
-                    </div>
+                    </h3>
+                    <span className={`badge ${status.badge}`}>{status.text}</span>
+                    {dish.overproduction > 0 && <span className="badge badge-danger">Sobró {dish.overproduction}</span>}
                   </div>
 
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--spacing-sm)',
-                    fontSize: 'var(--font-lg)',
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap'
-                  }}>
+                  <div className="prod-count" aria-label={`${dish.total_produced} de ${dish.total_ordered} producidos`}>
                     <span>{dish.total_produced}</span>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-body)' }}>/</span>
-                    <span>{dish.total_ordered}</span>
+                    <span className="prod-count-of">/ {dish.total_ordered}</span>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                    {!done && dish.total_ordered > 0 && (
-                      <>
-                        <button
-                          className="btn btn-success"
-                          onClick={() => handleProduce(dish.id)}
-                          disabled={savingAction !== null}
-                          style={{ minWidth: 'var(--touch-size)', fontSize: 'var(--font-lg)', padding: 'var(--spacing-sm) var(--spacing-md)' }}
-                          aria-label={`Marcar ${dish.name} como producido`}
-                        >
-                          {savingAction === `produce-${dish.id}` ? '...' : '+1'}
-                        </button>
-                        {remaining > 0 && (
-                          <button
-                            className="btn btn-primary"
-                            onClick={() => handleCompleteDish(dish.id)}
-                            disabled={savingAction !== null}
-                            style={{ fontSize: 'var(--font-body)', padding: 'var(--spacing-sm) var(--spacing-md)' }}
-                            aria-label={`Completar ${dish.name}`}
-                          >
-                            {savingAction === `complete-${dish.id}` ? '...' : '✓ Completar'}
-                          </button>
-                        )}
-                      </>
-                    )}
+                  <div className="prod-actions">
                     {dish.total_produced > 0 && (
                       <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => handleUndo(dish.id)}
                         disabled={savingAction !== null}
-                        style={{ fontSize: 'var(--font-sm)' }}
                         aria-label={`Restar 1 a la producción de ${dish.name}`}
                         title="Restar 1 unidad producida"
                       >
                         −1
                       </button>
                     )}
+                    {!done && dish.total_ordered > 0 && (
+                      <>
+                        {remaining > 0 && (
+                          <button
+                            className="btn btn-outline"
+                            onClick={() => handleCompleteDish(dish.id)}
+                            disabled={savingAction !== null}
+                            aria-label={`Completar ${dish.name}`}
+                          >
+                            {savingAction === `complete-${dish.id}` ? '...' : '✓ Completar'}
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-primary prod-plus"
+                          onClick={() => handleProduce(dish.id)}
+                          disabled={savingAction !== null}
+                          aria-label={`Marcar ${dish.name} como producido`}
+                        >
+                          {savingAction === `produce-${dish.id}` ? '...' : '+1'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                <div style={{
-                  height: 'calc(var(--touch-size) * 0.5)',
-                  background: 'var(--border)',
-                  borderRadius: '100px',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{
-                    width: `${pct}%`,
-                    height: '100%',
-                    background: done ? 'var(--success)' : 'var(--primary)',
-                    borderRadius: '100px',
-                    transition: 'width 0.5s ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 'var(--font-sm)',
-                    color: done ? 'var(--on-success)' : 'var(--on-primary)',
-                    fontWeight: 700
-                  }}>
-                    {pct > 15 && `${pct}%`}
-                  </div>
-                </div>
-
-                <div style={{
-                  display: 'flex',
-                  gap: 'var(--spacing-lg)',
-                  fontSize: 'var(--font-body)',
-                  color: 'var(--text-secondary)'
-                }}>
-                  <span>Pedidos: <strong style={{ color: 'var(--text)' }}>{dish.total_ordered}</strong></span>
-                  <span>Producido: <strong style={{ color: 'var(--text)' }}>{dish.total_produced}</strong></span>
-                  {remaining > 0 && (
-                    <span>Faltan: <strong style={{ color: 'var(--accent)' }}>{remaining}</strong></span>
-                  )}
-                  {dish.overproduction > 0 && (
-                    <span>Sobró: <strong style={{ color: 'var(--danger)' }}>{dish.overproduction}</strong></span>
-                  )}
+                <div className="prod-progress" aria-hidden="true">
+                  <span style={{ width: `${pct}%` }} />
                 </div>
 
                 {expandedDish === dish.id && (() => {
                   const fullDish = allDishes.find(d => d.id === dish.id)
                   if (!fullDish || !fullDish.ingredients || fullDish.ingredients.length === 0) return null
                   return (
-                    <div style={{
-                      marginTop: 'var(--spacing-xs)',
-                      padding: 'var(--spacing-sm) var(--spacing-md)',
-                      background: 'var(--bg)',
-                      borderRadius: 'var(--radius)',
-                      border: '1px solid var(--border)',
-                      fontSize: 'var(--font-sm)',
-                      color: 'var(--text-secondary)'
-                    }}>
+                    <div className="prod-ingredients">
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-sm)', fontWeight: 600, marginBottom: 'var(--spacing-xs)', color: 'var(--text)' }}>
                         <span>Ingredientes</span>
                         <span>{remaining > 0 ? `Para lo que falta (${remaining} u.)` : 'Por unidad'}</span>
@@ -582,10 +401,10 @@ export default function Dashboard() {
                     </div>
                   )
                 })()}
-              </div>
+              </li>
             )
           })}
-        </div>
+        </ul>
       )}
       {pdfPreview && (
         <PdfViewer pdfDoc={pdfPreview.doc} title={pdfPreview.title} onClose={() => setPdfPreview(null)} />

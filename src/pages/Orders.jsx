@@ -9,6 +9,8 @@ import { routeCacheKey, serializeRoute, restoreRoute } from '../utils/routeCache
 import { SkeletonOrderRow } from '../components/Skeleton'
 import ErrorBanner from '../components/ErrorBanner'
 import { useToast } from '../components/ToastProvider'
+import PageHeader from '../components/ui/PageHeader'
+import MetricStrip from '../components/ui/MetricStrip'
 import { fmtMoney, formatDate, formatWeekRange, orderStatus } from '../utils/format'
 
 const RouteMap = lazy(() => import('../components/RouteMap'))
@@ -622,47 +624,37 @@ export default function Orders() {
 
   return (
     <div>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 'var(--spacing-lg)',
-        gap: 'var(--spacing-md)',
-        flexWrap: 'wrap'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-          <h2 style={{ margin: 0 }}>Pedidos</h2>
-          <select
-            value={selectedWeekId ?? ''}
-            onChange={handleWeekSelect}
-            style={{ maxWidth: '280px', fontSize: 'var(--font-body)' }}
-            aria-label="Seleccionar semana"
-          >
-            <option value="">Semana actual</option>
-            {previousWeeks.map(w => (
-              <option key={w.id} value={w.id}>
-                {week && w.week_start > week.week_start ? `Próxima semana (${formatWeekRange(w.week_start, w.week_end)})` : formatWeekRange(w.week_start, w.week_end)}
-              </option>
-            ))}
-          </select>
-          {isHistorical && (
-            <span className="badge badge-warning" style={{ fontSize: 'var(--font-sm)' }}>
-              Solo lectura
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
-          <button className="btn btn-outline btn-sm" onClick={handlePrintLabelsView} disabled={isOtherWeek}>
-            Etiquetas
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={() => handlePrintRoute()} disabled={isOtherWeek || routeLoading}>
-            {routeLoading ? 'Generando...' : 'Hoja de Ruta'}
-          </button>
-          <button className="btn btn-primary" onClick={openNew} disabled={isOtherWeek} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
-            + Pedido
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Pedidos"
+        actions={
+          <>
+            <button className="btn btn-outline btn-sm" onClick={handlePrintLabelsView} disabled={isOtherWeek}>
+              Etiquetas
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => handlePrintRoute()} disabled={isOtherWeek || routeLoading}>
+              {routeLoading ? 'Generando...' : 'Hoja de Ruta'}
+            </button>
+            <button className="btn btn-primary" onClick={openNew} disabled={isOtherWeek}>
+              + Pedido
+            </button>
+          </>
+        }
+      >
+        <select
+          value={selectedWeekId ?? ''}
+          onChange={handleWeekSelect}
+          style={{ width: 'auto', maxWidth: '100%' }}
+          aria-label="Seleccionar semana"
+        >
+          <option value="">Semana actual</option>
+          {previousWeeks.map(w => (
+            <option key={w.id} value={w.id}>
+              {week && w.week_start > week.week_start ? `Próxima semana (${formatWeekRange(w.week_start, w.week_end)})` : formatWeekRange(w.week_start, w.week_end)}
+            </option>
+          ))}
+        </select>
+        {isHistorical && <span className="badge badge-warning">Solo lectura</span>}
+      </PageHeader>
 
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
@@ -674,34 +666,17 @@ export default function Orders() {
       />
 
       {!isOtherWeek && orderCounts && (
-        <div style={{
-          display: 'flex',
-          gap: 'var(--spacing-md)',
-          marginBottom: 'var(--spacing-md)',
-          flexWrap: 'wrap'
-        }}>
-          <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)', borderColor: (orderCounts.pending + orderCounts.confirmed) > 0 ? 'var(--accent)' : undefined }}>
-            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--accent)' }}>Pendientes</p>
-            <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--accent)' }}>{orderCounts.pending + orderCounts.confirmed}</p>
-          </div>
-          <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--warning)' }}>Armados</p>
-            <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--warning)' }}>{orderCounts.assembled}</p>
-          </div>
-          <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-            <p style={{ fontSize: 'var(--font-sm)', color: 'var(--success)' }}>Entregados</p>
-            <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>{orderCounts.delivered}</p>
-          </div>
-        </div>
+        <MetricStrip
+          label="Estado de los pedidos de la semana"
+          items={[
+            { label: 'Pendientes', value: orderCounts.pending + orderCounts.confirmed, tone: (orderCounts.pending + orderCounts.confirmed) > 0 ? 'accent' : 'muted' },
+            { label: 'Armados', value: orderCounts.assembled, tone: 'warning' },
+            { label: 'Entregados', value: orderCounts.delivered, tone: 'success' }
+          ]}
+        />
       )}
 
-      <div style={{
-        display: 'flex',
-        gap: 'var(--spacing-sm)',
-        marginBottom: 'var(--spacing-md)',
-        alignItems: 'center',
-        flexWrap: 'wrap'
-      }}>
+      <div className="toolbar">
         <input
           type="text"
           placeholder="Buscar por cliente o plato..."
@@ -709,24 +684,17 @@ export default function Orders() {
           onChange={e => setOrderSearch(e.target.value)}
           key="search-orders"
           aria-label="Buscar pedido"
-          style={{ flex: '1', minWidth: '200px', maxWidth: '400px' }}
         />
-        {!isOtherWeek && <label style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--spacing-xs)',
-          fontSize: 'var(--font-body)',
-          cursor: 'pointer',
-          userSelect: 'none'
-        }}>
-          <input
-            type="checkbox"
-            checked={showUnpackedOnly}
-            onChange={e => setShowUnpackedOnly(e.target.checked)}
-            style={{ width: '24px', height: '24px' }}
-          />
-          Solo pendientes de armar
-        </label>}
+        {!isOtherWeek && (
+          <label className="toolbar-check">
+            <input
+              type="checkbox"
+              checked={showUnpackedOnly}
+              onChange={e => setShowUnpackedOnly(e.target.checked)}
+            />
+            Solo pendientes de armar
+          </label>
+        )}
       </div>
 
       {loading && (
@@ -743,31 +711,50 @@ export default function Orders() {
       )}
 
       {!loading && sortedOrders.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+        <ul className="list">
           {sortedOrders.map(order => (
-            <div key={order.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <h3 style={{ fontSize: 'var(--font-lg)', margin: 0 }}>
-                    {order.client_name}
-                  </h3>
+            <li key={order.id} className={`order-card status-${order.status}`}>
+              <div className="order-card-head">
+                <div className="list-card-body">
+                  <div className="list-card-title">
+                    <h3>{order.client_name}</h3>
+                    <span className={`badge ${orderStatus(order.status).badge}`}>{orderStatus(order.status).label}</span>
+                    {order.paid && (
+                      <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        Cobrado ✓
+                        <button className="btn-paid-undo" onClick={() => setUnpayConfirmId(order.id)} aria-label="Deshacer cobro" title="Deshacer cobro">×</button>
+                      </span>
+                    )}
+                  </div>
                   {(order.client_phone || (order.has_delivery && (order.client_address || order.client_locality))) && (
-                    <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                      {[order.client_phone, order.has_delivery ? [order.client_address, order.client_locality].filter(Boolean).join(', ') : null].filter(Boolean).join(' · ')}
-                    </span>
+                    <div className="list-card-meta">
+                      {order.client_phone && <span>{order.client_phone}</span>}
+                      {order.has_delivery && (order.client_address || order.client_locality) && (
+                        <span>{[order.client_address, order.client_locality].filter(Boolean).join(', ')}</span>
+                      )}
+                    </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center' }}>
-                  <span className={`badge ${orderStatus(order.status).badge}`}
-                    style={{ fontSize: 'var(--font-sm)' }}>
-                    {orderStatus(order.status).label}
-                  </span>
-                  {order.paid ? (
-                    <span className="badge badge-success" style={{ fontSize: 'var(--font-sm)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      Cobrado ✓
-                      <button className="btn-paid-undo" onClick={() => setUnpayConfirmId(order.id)} aria-label="Deshacer cobro" title="Deshacer cobro">×</button>
-                    </span>
-                  ) : (
+                <span className="order-total">{fmtMoney(order.total || 0)}</span>
+              </div>
+
+              <ul className="order-items" aria-label="Platos">
+                {order.items?.map((item, i) => (
+                  <li key={i}><strong>{item.quantity}×</strong> {item.dish_name}</li>
+                ))}
+                {order.has_delivery && (
+                  <li className="is-delivery">
+                    Envío{order.delivery_day ? ` ${DAY_LABELS[order.delivery_day] || order.delivery_day}` : ''} · {fmtMoney(order.delivery_fee || 0)}
+                  </li>
+                )}
+              </ul>
+
+              {order.notes && <p className="order-notes">{order.notes}</p>}
+
+              <div className="order-card-foot">
+                <span className="order-date">Cargado {formatDate(order.created_at) || '—'}</span>
+                <div className="list-card-actions">
+                  {!order.paid && (
                     <button className="btn btn-sm btn-status-paid" onClick={() => handlePaid(order.id)} aria-label="Marcar como cobrado">
                       Cobrar
                     </button>
@@ -804,52 +791,9 @@ export default function Orders() {
                   )}
                 </div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-sm)' }}>
-                {order.items?.map((item, i) => (
-                  <span key={i} style={{
-                    background: 'var(--primary-light)',
-                    padding: 'var(--spacing-xs) var(--spacing-sm)',
-                    borderRadius: 'var(--radius)',
-                    fontSize: 'var(--font-body)',
-                    fontWeight: 700
-                  }}>
-                    {item.dish_name} ×{item.quantity}
-                  </span>
-                ))}
-                {order.has_delivery && (
-                  <span style={{
-                    background: 'var(--accent-light)',
-                    padding: 'var(--spacing-xs) var(--spacing-sm)',
-                    borderRadius: 'var(--radius)',
-                    fontSize: 'var(--font-body)',
-                    fontWeight: 700
-                  }}>
-                    Envío{order.delivery_day ? ` ${DAY_LABELS[order.delivery_day] || order.delivery_day}` : ''} · {fmtMoney(order.delivery_fee || 0)}
-                  </span>
-                )}
-              </div>
-              {order.notes && (
-                <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                  {order.notes}
-                </p>
-              )}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderTop: '1px solid var(--border)',
-                paddingTop: 'var(--spacing-sm)'
-              }}>
-                <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                  Cargado: {formatDate(order.created_at) || '—'}
-                </span>
-                <span style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>
-                  {fmtMoney(order.total || 0)}
-                </span>
-              </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       <Modal

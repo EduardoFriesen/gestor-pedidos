@@ -1137,7 +1137,7 @@ function testThemeContrast() {
   const themes = readThemeTokens()
   const pairs = [
     ['text', 'bg'], ['text', 'bg-card'], ['text', 'bg-hover'],
-    ['text-secondary', 'bg'], ['text-secondary', 'bg-card'],
+    ['text-secondary', 'bg'], ['text-secondary', 'bg-card'], ['text-secondary', 'bg-hover'],
     ['on-primary', 'primary'], ['on-primary', 'primary-hover'], ['primary', 'bg-card'], ['primary', 'primary-light'],
     ['on-danger', 'danger'], ['danger', 'bg-card'], ['danger', 'danger-light'],
     ['on-success', 'success'], ['success', 'bg-card'], ['success', 'success-light'],
@@ -1157,6 +1157,520 @@ function testThemeContrast() {
       assert(ratio >= 4.5, `${name}: --${fg} on --${bg} meets WCAG AA`, `${t[fg]} on ${t[bg]} = ${ratio.toFixed(2)}`, 'high')
     }
   }
+}
+
+function runSafe(name, fn) {
+  try { fn() } catch (e) { assert(false, `${name} threw`, e.stack?.split('\n').slice(0, 3).join(' | '), 'critical') }
+}
+
+const MONEY_FIXTURE = () => ({
+  weeks: [
+    { id: 1, week_start: '2026-07-05', week_end: '2026-07-11' },
+    { id: 2, week_start: '2026-07-12', week_end: '2026-07-18' }
+  ],
+  ingredients: [
+    { id: 1, name: 'Harina', unit: 'kg', cost: 1400 },
+    { id: 2, name: 'Queso', unit: 'kg', cost: 1200 }
+  ],
+  dishes: [
+    { id: 10, name: 'Tarta', price: 1000, ingredients: [{ ingredientId: 1, quantity: 0.5 }], is_active: true },
+    { id: 11, name: 'Pizza', price: 2000, ingredients: [{ ingredientId: 2, quantity: 1 }], is_active: true },
+    { id: 12, name: 'Empanada', price: 500, ingredients: [], is_active: true }
+  ],
+  clients: [
+    { id: 20, name: 'Ana', last_name: 'A', phone: '351 111-2222' },
+    { id: 21, name: 'Beto', last_name: 'B', phone: '' },
+    { id: 22, name: 'Caro', last_name: 'C', phone: '' }
+  ],
+  orders: [
+    { id: 30, week_id: 1, client_id: 20, status: 'delivered', paid: true, paid_at: '2026-07-10 10:00:00', has_delivery: true, delivery_fee: 500, delivery_day: 'viernes', created_at: '2026-07-06 10:00:00' },
+    { id: 31, week_id: 2, client_id: 20, status: 'delivered', paid: true, paid_at: '2026-07-20 10:00:00', delivered_at: '2026-07-17 18:00:00', created_at: '2026-07-13 10:00:00' },
+    { id: 32, week_id: 2, client_id: 21, status: 'delivered', paid: false, has_delivery: true, delivery_fee: 500, delivery_day: 'jueves', created_at: '2026-07-13 11:00:00' },
+    { id: 33, week_id: 1, client_id: 21, status: 'delivered', paid: false, created_at: '2026-07-06 11:00:00' },
+    { id: 34, week_id: 2, client_id: 22, status: 'assembled', paid: false, created_at: '2026-07-13 12:00:00' }
+  ],
+  orderItems: [
+    { order_id: 30, dish_id: 10, quantity: 2, unit_price: 1000, unit_cost: 300 },
+    { order_id: 30, dish_id: 11, quantity: 1, unit_price: 2000, unit_cost: 800 },
+    { order_id: 31, dish_id: 10, quantity: 1, unit_price: 1000, unit_cost: 500 },
+    { order_id: 31, dish_id: 11, quantity: 3, unit_price: 2000, unit_cost: 1000 },
+    { order_id: 32, dish_id: 10, quantity: 1, unit_price: 1000, unit_cost: 500 },
+    { order_id: 33, dish_id: 12, quantity: 2, unit_price: 500, unit_cost: 100 },
+    { order_id: 34, dish_id: 11, quantity: 1, unit_price: 2000, unit_cost: 1000 }
+  ],
+  _paidMigrated: true
+})
+
+function testOrderStatusTimestamps() {
+  log('\n--- testOrderStatusTimestamps ---')
+  withFixtureStore({
+    weeks: [{ id: 1, week_start: '2020-01-05', week_end: '2020-01-11', is_current: false }],
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: [{ id: 30, week_id: 1, client_id: 20, status: 'pending', created_at: '2020-01-06 10:00:00' }],
+    _paidMigrated: true
+  }, (s) => runSafe('testOrderStatusTimestamps', () => {
+    const cur = s.getCurrentWeek()
+    const { id } = s.createOrder({ clientId: 20, weekId: cur.id, items: [{ dishId: 10, quantity: 1 }] })
+    let o = s.getOrderWithDetails(id)
+    assert(o.assembled_at === null && o.delivered_at === null, 'New orders start without assembled_at/delivered_at', JSON.stringify({ a: o.assembled_at, d: o.delivered_at }))
+    s.markOrderAssembled(id)
+    o = s.getOrderWithDetails(id)
+    assert(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(o.assembled_at || ''), 'markOrderAssembled sets assembled_at', o.assembled_at, 'high')
+    s.markOrderDelivered(id)
+    o = s.getOrderWithDetails(id)
+    assert(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(o.delivered_at || ''), 'markOrderDelivered sets delivered_at', o.delivered_at, 'high')
+    s.unmarkOrderDelivered(id)
+    o = s.getOrderWithDetails(id)
+    assert(o.delivered_at === null && o.assembled_at !== null, 'unmarkOrderDelivered clears only delivered_at', JSON.stringify({ a: o.assembled_at, d: o.delivered_at }))
+    s.unmarkOrderAssembled(id)
+    assert(s.getOrderWithDetails(id).assembled_at === null, 'unmarkOrderAssembled clears assembled_at')
+    const enriched = s.getOrders().find(x => x.id === id)
+    assert(enriched && 'assembled_at' in enriched && 'delivered_at' in enriched, 'enrichOrder exposes timestamps')
+    s.markPastOrdersDelivered([30])
+    assert(typeof s.getOrderWithDetails(30).delivered_at === 'string', 'markPastOrdersDelivered sets delivered_at')
+  }))
+}
+
+function testPendingCollections() {
+  log('\n--- testPendingCollections ---')
+  withFixtureStore(MONEY_FIXTURE(), (s) => runSafe('testPendingCollections', () => {
+    const r = s.getPendingCollections('2026-07-20')
+    assert(r.total === 2000, 'Pending total = unpaid delivered items (no delivery fee)', `total=${r.total}`, 'critical')
+    assert(r.deliveryFees === 500, 'Delivery fees reported separately', `fees=${r.deliveryFees}`, 'high')
+    assert(r.byClient.length === 1 && r.byClient[0].clientId === 21, 'Only clients with delivered unpaid orders', JSON.stringify(r.byClient.map(c => c.clientId)), 'high')
+    const b = r.byClient[0]
+    assert(b.amount === 2000 && b.orders === 2 && b.deliveryFees === 500, 'Per-client amount, orders and fees', JSON.stringify(b))
+    assert(b.name === 'Beto B', 'Client full name', b.name)
+    assert(b.oldestSince === '2026-07-10' && b.daysOwed === 10, 'Oldest debt falls back to the Friday of its week', JSON.stringify(b), 'high')
+    const ana = r.payTimes.find(p => p.clientId === 20)
+    assert(ana && ana.avgDays === 1.5 && ana.samples === 2, 'Average days to pay uses delivered_at or the delivery day', JSON.stringify(r.payTimes), 'high')
+    assert(r.avgDaysToPay === 1.5, 'Overall average days to pay', `${r.avgDaysToPay}`)
+    const bad = s.getPendingCollections('not-a-date')
+    assert(bad.total === 2000 && Number.isFinite(bad.byClient[0].daysOwed), 'Invalid date falls back to today')
+  }))
+  withFixtureStore({ _paidMigrated: true }, (s) => runSafe('testPendingCollections empty', () => {
+    const r = s.getPendingCollections('2026-07-20')
+    assert(r.total === 0 && r.byClient.length === 0 && r.avgDaysToPay === null, 'Empty store returns zero debt', JSON.stringify(r))
+  }))
+}
+
+function testMarginErosion() {
+  log('\n--- testMarginErosion ---')
+  withFixtureStore(MONEY_FIXTURE(), (s) => runSafe('testMarginErosion', () => {
+    const r = s.getMarginErosion('2026-07-05', '2026-07-18')
+    assert(r.map(d => d.dishId).join(',') === '10,11', 'Only sold dishes, biggest margin loss first', JSON.stringify(r.map(d => d.dishId)), 'high')
+    const t = r[0]
+    assert(t.marginStart === 70 && t.marginEnd === 50 && t.marginNow === 30, 'Start/end use order snapshots, now uses the current cost', JSON.stringify(t), 'high')
+    assert(t.deltaPp === -40, 'deltaPp = now - start', `${t.deltaPp}`)
+    assert(Math.round(t.costChangePct * 100) / 100 === 133.33 && t.priceChangePct === 0, 'Cost and price change %', JSON.stringify(t))
+    assert(t.suggestedPrice === 2340, 'Suggested price recovers the initial margin (rounded up to 10)', `${t.suggestedPrice}`, 'high')
+    assert(t.firstWeek === '2026-07-05' && t.lastWeek === '2026-07-12', 'First and last week sold', JSON.stringify(t))
+    const p = r[1]
+    assert(p.marginStart === 60 && p.marginEnd === 50 && p.marginNow === 40 && p.deltaPp === -20, 'Second dish margins', JSON.stringify(p))
+    assert(s.getMarginErosion('2030-01-01', '2030-01-31').length === 0, 'Empty range returns []')
+    assert(Array.isArray(s.getMarginErosion('bad', null)), 'Invalid dates do not throw')
+  }))
+}
+
+function testIngredientCostDrivers() {
+  log('\n--- testIngredientCostDrivers ---')
+  withFixtureStore(MONEY_FIXTURE(), (s) => runSafe('testIngredientCostDrivers', () => {
+    const r = s.getIngredientCostDrivers('2026-07-05', '2026-07-18')
+    assert(r.totalCost === 6900, 'Total ingredient cost of sold dishes', `${r.totalCost}`, 'high')
+    assert(r.items.map(i => i.name).join(',') === 'Queso,Harina', 'Sorted by cost desc', JSON.stringify(r.items))
+    const q = r.items[0]
+    assert(q.quantity === 4 && q.cost === 4800 && q.unit === 'kg', 'Quantity and cost per ingredient', JSON.stringify(q))
+    assert(Math.round(q.share * 100) / 100 === 69.57 && r.items[1].cumulativeShare === 100, 'Share and cumulative share', JSON.stringify(r.items))
+    const one = s.getIngredientCostDrivers('2026-07-05', '2026-07-18', 1)
+    assert(one.items.length === 1 && one.totalCost === 6900, 'Limit trims items but keeps the total', JSON.stringify(one))
+  }))
+  withFixtureStore({
+    ...MONEY_FIXTURE(),
+    ingredients: [
+      { id: 1, name: 'Harina', unit: 'kg', cost: 1000 },
+      { id: 3, name: 'Masa', unit: 'kg', cost: 0, batchYield: 2, subIngredients: [{ ingredientId: 1, quantity: 1 }] },
+      { id: 2, name: 'Queso', unit: 'kg', cost: 1200 }
+    ],
+    dishes: [{ id: 10, name: 'Tarta', price: 1000, ingredients: [{ ingredientId: 3, quantity: 1 }], is_active: true }],
+    orderItems: [{ order_id: 30, dish_id: 10, quantity: 4, unit_price: 1000, unit_cost: 300 }]
+  }, (s) => runSafe('testIngredientCostDrivers composite', () => {
+    const r = s.getIngredientCostDrivers('2026-07-05', '2026-07-18')
+    assert(r.items.length === 1 && r.items[0].name === 'Harina' && r.items[0].quantity === 2 && r.items[0].cost === 2000, 'Composite ingredients expand using batchYield', JSON.stringify(r.items))
+  }))
+}
+
+function testDishMatrix() {
+  log('\n--- testDishMatrix ---')
+  const dishes = [['A', 10, 20], ['B', 10, 70], ['C', 1, 10], ['D', 1, 80]]
+  withFixtureStore({
+    weeks: [{ id: 1, week_start: '2026-07-05', week_end: '2026-07-11' }],
+    dishes: dishes.map(([name], i) => ({ id: 10 + i, name, price: 100, ingredients: [], is_active: true })),
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: [
+      { id: 30, week_id: 1, client_id: 20, status: 'delivered', paid: true, created_at: '2026-07-06 10:00:00' },
+      { id: 31, week_id: 1, client_id: 20, status: 'pending', paid: false, created_at: '2026-07-06 10:00:00' }
+    ],
+    orderItems: [
+      ...dishes.map(([, qty, cost], i) => ({ order_id: 30, dish_id: 10 + i, quantity: qty, unit_price: 100, unit_cost: cost })),
+      { order_id: 31, dish_id: 12, quantity: 50, unit_price: 100, unit_cost: 10 }
+    ],
+    _paidMigrated: true
+  }, (s) => runSafe('testDishMatrix', () => {
+    const r = s.getDishMatrix('2026-07-05', '2026-07-11')
+    assert(r.medianUnits === 5.5 && r.medianMargin === 55, 'Medians of units and margin (revenue orders only)', JSON.stringify({ u: r.medianUnits, m: r.medianMargin }), 'high')
+    const names = (k) => r.groups[k].map(d => d.name).join(',')
+    assert(names('promote') === 'A' && names('raisePrice') === 'B' && names('review') === 'C' && names('remove') === 'D', 'Each dish lands in its quadrant', JSON.stringify(r.groups), 'high')
+    const a = r.groups.promote[0]
+    assert(a.units === 10 && a.margin === 80 && a.profit === 800, 'Dish entries carry units, margin and profit', JSON.stringify(a))
+  }))
+  withFixtureStore({
+    weeks: [{ id: 1, week_start: '2026-07-05', week_end: '2026-07-11' }],
+    dishes: [{ id: 10, name: 'A', price: 100, ingredients: [], is_active: true }],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: [{ id: 30, week_id: 1, client_id: 20, status: 'delivered', paid: true, created_at: '2026-07-06 10:00:00' }],
+    orderItems: [{ order_id: 30, dish_id: 10, quantity: 3, unit_price: 100, unit_cost: 40 }],
+    _paidMigrated: true
+  }, (s) => runSafe('testDishMatrix single', () => {
+    const r = s.getDishMatrix('2026-07-05', '2026-07-11')
+    assert(r.groups.promote.length === 1, 'A single dish goes to promote', JSON.stringify(r.groups))
+    const e = s.getDishMatrix('2030-01-01', '2030-01-31')
+    assert(e.medianUnits === null && Object.values(e.groups).every(g => g.length === 0), 'Empty range has no groups', JSON.stringify(e))
+  }))
+}
+
+function testWhatsappUrl() {
+  log('\n--- testWhatsappUrl ---')
+  runSafe('testWhatsappUrl', () => {
+    const { whatsappUrl } = require('./src/utils/contact.js')
+    assert(whatsappUrl('351 111-2222') === 'https://wa.me/5493511112222', 'Local number gets the AR mobile prefix', whatsappUrl('351 111-2222'))
+    assert(whatsappUrl('+54 9 351 111 2222') === 'https://wa.me/5493511112222', 'International number is kept', whatsappUrl('+54 9 351 111 2222'))
+    assert(whatsappUrl('0351 1112222') === 'https://wa.me/5493511112222', 'Leading 0 is dropped', whatsappUrl('0351 1112222'))
+    assert(whatsappUrl('') === null && whatsappUrl(null) === null && whatsappUrl('12-34') === null, 'Empty or too short phones return null')
+    assert(whatsappUrl('3511112222', 'Hola & chau') === 'https://wa.me/5493511112222?text=Hola%20%26%20chau', 'Text is URL-encoded', whatsappUrl('3511112222', 'Hola & chau'))
+  })
+}
+
+const PORTFOLIO_FIXTURE = () => {
+  const clients = [
+    { id: 40, name: 'Lara', last_name: 'L', phone: '351 555-0000', locality: 'Córdoba' },
+    { id: 41, name: 'Activo', last_name: 'A', phone: '', locality: ' córdoba ' },
+    { id: 42, name: 'Pocos', last_name: 'P', phone: '', locality: 'Villa Allende' },
+    { id: 43, name: 'Lento', last_name: 'L', phone: '', locality: '' },
+    { id: 44, name: 'Mensual', last_name: 'M', phone: '', locality: 'Villa Allende' }
+  ]
+  const dates = {
+    40: ['2026-05-01', '2026-05-08', '2026-05-15'],
+    41: ['2026-07-03', '2026-07-10', '2026-07-17'],
+    42: ['2026-01-02', '2026-01-09'],
+    43: ['2026-03-01', '2026-04-01', '2026-05-01'],
+    44: ['2026-04-10', '2026-05-10', '2026-06-10']
+  }
+  const orders = []
+  let id = 100
+  for (const [clientId, ds] of Object.entries(dates)) {
+    for (const d of ds) orders.push({ id: id++, week_id: null, client_id: parseInt(clientId), status: 'delivered', paid: true, delivered_at: `${d} 12:00:00`, created_at: `${d} 09:00:00` })
+  }
+  orders.push({ id: id++, week_id: null, client_id: 99, status: 'delivered', paid: true, delivered_at: '2026-01-01 12:00:00', created_at: '2026-01-01 09:00:00' })
+  orders.push({ id: id++, week_id: null, client_id: 99, status: 'delivered', paid: true, delivered_at: '2026-01-08 12:00:00', created_at: '2026-01-08 09:00:00' })
+  orders.push({ id: id++, week_id: null, client_id: 99, status: 'delivered', paid: true, delivered_at: '2026-01-15 12:00:00', created_at: '2026-01-15 09:00:00' })
+  return { clients, orders, _paidMigrated: true }
+}
+
+function testLapsedClients() {
+  log('\n--- testLapsedClients ---')
+  withFixtureStore(PORTFOLIO_FIXTURE(), (s) => runSafe('testLapsedClients', () => {
+    const r = s.getLapsedClients('2026-07-20')
+    assert(r.map(c => c.clientId).join(',') === '43,40', 'Lapsed = ≥3 orders and past max(21, 2× median interval), longest silence first', JSON.stringify(r.map(c => c.clientId)), 'critical')
+    const lara = r.find(c => c.clientId === 40)
+    assert(lara.orders === 3 && lara.medianIntervalDays === 7 && lara.thresholdDays === 21 && lara.daysSince === 66 && lara.lastOrderAt === '2026-05-15', 'Floor of 21 days applies to fast-rhythm clients', JSON.stringify(lara), 'high')
+    assert(lara.name === 'Lara L' && lara.phone === '351 555-0000', 'Contact data for WhatsApp', JSON.stringify(lara))
+    const lento = r.find(c => c.clientId === 43)
+    assert(lento.medianIntervalDays === 30.5 && lento.thresholdDays === 61 && lento.daysSince === 80, 'Threshold is relative to the client rhythm', JSON.stringify(lento), 'high')
+    assert(!r.some(c => c.clientId === 44), 'Monthly client 40 days in is within 2× its rhythm')
+    assert(!r.some(c => c.clientId === 42), 'Clients with fewer than 3 orders are excluded')
+    assert(!r.some(c => c.clientId === 99), 'Orders of deleted clients are ignored')
+    assert(Array.isArray(s.getLapsedClients('bad')), 'Invalid date falls back to today')
+  }))
+  withFixtureStore({ _paidMigrated: true }, (s) => runSafe('testLapsedClients empty', () => {
+    assert(s.getLapsedClients('2026-07-20').length === 0, 'Empty store returns []')
+  }))
+}
+
+const VALUE_FIXTURE = () => {
+  const order = (id, week_id, client_id, extra = {}) => ({ id, week_id, client_id, status: 'delivered', paid: true, created_at: '2026-06-01 10:00:00', ...extra })
+  return {
+    weeks: [
+      { id: 5, week_start: '2026-06-28', week_end: '2026-07-04' },
+      { id: 1, week_start: '2026-07-05', week_end: '2026-07-11' },
+      { id: 2, week_start: '2026-07-12', week_end: '2026-07-18' },
+      { id: 3, week_start: '2026-07-19', week_end: '2026-07-25' },
+      { id: 4, week_start: '2026-07-26', week_end: '2026-08-01' }
+    ],
+    dishes: [
+      { id: 10, name: 'Tarta', price: 1000, ingredients: [], is_active: true },
+      { id: 11, name: 'Pizza', price: 2000, ingredients: [], is_active: true },
+      { id: 12, name: 'Flan', price: 500, ingredients: [], is_active: true }
+    ],
+    clients: [
+      { id: 20, name: 'Ana', last_name: 'A', locality: 'Córdoba' },
+      { id: 21, name: 'Beto', last_name: 'B', locality: ' córdoba' },
+      { id: 22, name: 'Caro', last_name: 'C', locality: 'Villa Allende' },
+      { id: 23, name: 'Dani', last_name: 'D', locality: '' }
+    ],
+    orders: [
+      order(50, 1, 20, { has_delivery: true, delivery_fee: 500 }),
+      order(51, 2, 20),
+      order(52, 3, 20),
+      order(53, 1, 21),
+      order(54, 5, 22),
+      order(55, 4, 22),
+      order(56, 2, 22, { status: 'delivered', paid: false }),
+      order(57, 3, 23, { has_delivery: true, delivery_fee: 700 }),
+      order(58, 4, 23)
+    ],
+    orderItems: [
+      { order_id: 50, dish_id: 10, quantity: 1, unit_price: 1000 },
+      { order_id: 51, dish_id: 10, quantity: 1, unit_price: 1000 },
+      { order_id: 51, dish_id: 12, quantity: 2, unit_price: 500 },
+      { order_id: 52, dish_id: 10, quantity: 1, unit_price: 1000 },
+      { order_id: 52, dish_id: 12, quantity: 1, unit_price: 500 },
+      { order_id: 52, dish_id: 11, quantity: 1, unit_price: 500 },
+      { order_id: 53, dish_id: 11, quantity: 2, unit_price: 2000 },
+      { order_id: 53, dish_id: 10, quantity: 1, unit_price: 1000 },
+      { order_id: 54, dish_id: 10, quantity: 1, unit_price: 1000 },
+      { order_id: 55, dish_id: 10, quantity: 3, unit_price: 1000 },
+      { order_id: 55, dish_id: 12, quantity: 1, unit_price: 0 },
+      { order_id: 56, dish_id: 11, quantity: 5, unit_price: 2000 },
+      { order_id: 57, dish_id: 10, quantity: 1, unit_price: 1000 },
+      { order_id: 57, dish_id: 12, quantity: 1, unit_price: 500 },
+      { order_id: 58, dish_id: 12, quantity: 1, unit_price: 500 }
+    ],
+    _paidMigrated: true
+  }
+}
+
+function testClientValue() {
+  log('\n--- testClientValue ---')
+  withFixtureStore(VALUE_FIXTURE(), (s) => runSafe('testClientValue', () => {
+    const r = s.getClientValue('2026-07-05', '2026-08-01', '2026-08-01')
+    assert(r.map(c => c.clientId).join(',') === '20,21,22,23', 'Sorted by spend desc', JSON.stringify(r.map(c => [c.clientId, c.total])), 'high')
+    const ana = r[0]
+    assert(ana.total === 5000 && ana.orders === 3 && Math.round(ana.avgTicket * 100) / 100 === 1666.67, 'Spend uses item totals only (no delivery fee)', JSON.stringify(ana), 'critical')
+    assert(ana.activeWeeks === 3 && ana.weeksSinceFirst === 4 && ana.frequency === 0.75 && ana.segment === 'fiel', 'Ana ordered 3 of 4 weeks → fiel', JSON.stringify(ana), 'high')
+    assert(ana.firstOrder === '2026-07-05' && ana.tenureDays === 27 && ana.name === 'Ana A', 'First order week and tenure', JSON.stringify(ana))
+    const beto = r[1]
+    assert(beto.total === 5000 && beto.orders === 1 && beto.segment === 'ocasional', 'A single order is never fiel', JSON.stringify(beto))
+    const caro = r[2]
+    assert(caro.total === 3000 && caro.orders === 1 && caro.firstOrder === '2026-06-28' && caro.weeksSinceFirst === 4, 'Unpaid orders do not count; window starts at the range when the client is older', JSON.stringify(caro), 'high')
+    const dani = r[3]
+    assert(dani.weeksSinceFirst === 2 && dani.activeWeeks === 2 && dani.segment === 'fiel', 'Window starts at the first order for new clients', JSON.stringify(dani), 'high')
+    const all = s.getClientValue(null, null, '2026-08-01').find(c => c.clientId === 22)
+    assert(all.orders === 2 && all.weeksSinceFirst === 5 && all.activeWeeks === 2, 'Whole history window', JSON.stringify(all))
+    const future = s.getClientValue('2026-07-05', '2026-08-31', '2026-08-01')[0]
+    assert(future.weeksSinceFirst === 4, 'Window never extends past today', JSON.stringify(future))
+    assert(s.getClientValue('2030-01-01', '2030-01-31', '2026-08-01').length === 0, 'Empty range returns []')
+  }))
+}
+
+function testDishPairs() {
+  log('\n--- testDishPairs ---')
+  const fixture = VALUE_FIXTURE()
+  fixture.orderItems.push({ order_id: 51, dish_id: 12, quantity: 1, unit_price: 500 })
+  withFixtureStore(fixture, (s) => runSafe('testDishPairs', () => {
+    const r = s.getDishPairs('2026-07-05', '2026-08-01')
+    assert(r.totalOrders === 7, 'Base = paid delivered orders in range', `${r.totalOrders}`, 'high')
+    const label = (p) => `${p.a.name}+${p.b.name}:${p.count}`
+    assert(r.pairs.map(label).join(',') === 'Tarta+Flan:4,Tarta+Pizza:2', 'Pairs with count ≥ minSupport, repeated lines counted once', JSON.stringify(r.pairs.map(label)), 'critical')
+    const tf = r.pairs[0]
+    assert(tf.support === 57.14 && tf.lift === 0.93, 'Support % and lift', JSON.stringify(tf), 'high')
+    assert(r.pairs[1].lift === 1.17, 'Lift above 1 means they go together more than by chance', JSON.stringify(r.pairs[1]))
+    assert(s.getDishPairs('2026-07-05', '2026-08-01', 1).pairs.length === 3, 'minSupport 1 includes single co-occurrences')
+    assert(s.getDishPairs('2026-07-05', '2026-08-01', 'x').pairs.length === 2, 'Invalid minSupport falls back to 2')
+    const empty = s.getDishPairs('2030-01-01', '2030-01-31')
+    assert(empty.totalOrders === 0 && empty.pairs.length === 0, 'Empty range', JSON.stringify(empty))
+  }))
+}
+
+function testSalesByZone() {
+  log('\n--- testSalesByZone ---')
+  const fixture = VALUE_FIXTURE()
+  fixture.clients.find(c => c.id === 21).locality = ' cordoba '
+  withFixtureStore(fixture, (s) => runSafe('testSalesByZone', () => {
+    const r = s.getSalesByZone('2026-07-05', '2026-08-01')
+    assert(r.map(z => z.zone).join(',') === 'Córdoba,Villa Allende,Sin localidad', 'Zones merged ignoring case, spaces and accents; sorted by sales', JSON.stringify(r.map(z => z.zone)), 'critical')
+    const cba = r[0]
+    assert(cba.clients === 2 && cba.orders === 4 && cba.revenue === 10000 && cba.avgTicket === 2500, 'Zone totals exclude delivery fees', JSON.stringify(cba), 'critical')
+    assert(cba.deliveryShare === 25 && cba.avgDeliveryFee === 500, 'Share of orders with delivery and average fee charged', JSON.stringify(cba), 'high')
+    const va = r[1]
+    assert(va.deliveryShare === 0 && va.avgDeliveryFee === null, 'No deliveries → null average fee', JSON.stringify(va))
+    const none = r[2]
+    assert(none.orders === 2 && none.revenue === 2000 && none.deliveryShare === 50 && none.avgDeliveryFee === 700, 'Empty locality groups as Sin localidad', JSON.stringify(none), 'high')
+    assert(s.getSalesByZone('2030-01-01', '2030-01-31').length === 0, 'Empty range returns []')
+  }))
+}
+
+const PRODUCTION_FIXTURE = () => {
+  const demand = [
+    [1, 10, 2], [2, 10, 10],
+    [3, 10, 4], [4, 10, 6], [5, 10, 8], [5, 11, 3], [5, 12, 5], [5, 99, 4]
+  ]
+  return {
+    weeks: [
+      { id: 1, week_start: '2025-07-06', week_end: '2025-07-12' },
+      { id: 2, week_start: '2025-07-27', week_end: '2025-08-02' },
+      { id: 3, week_start: '2026-07-05', week_end: '2026-07-11' },
+      { id: 4, week_start: '2026-07-12', week_end: '2026-07-18' },
+      { id: 5, week_start: '2026-07-19', week_end: '2026-07-25' }
+    ],
+    ingredients: [
+      { id: 1, name: 'Harina', unit: 'kg', cost: 1400 },
+      { id: 2, name: 'Queso', unit: 'kg', cost: 1200 }
+    ],
+    dishes: [
+      { id: 10, name: 'Tarta', price: 1000, ingredients: [{ ingredientId: 1, quantity: 0.5 }], is_active: true },
+      { id: 11, name: 'Pizza', price: 2000, ingredients: [{ ingredientId: 2, quantity: 0.2 }], is_active: true },
+      { id: 12, name: 'Vieja', price: 500, ingredients: [], is_active: false }
+    ],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: demand.map(([week_id], i) => ({ id: 200 + i, week_id, client_id: 20, status: 'pending', paid: false, created_at: '2026-01-01 10:00:00' })),
+    orderItems: demand.map(([, dish_id, quantity], i) => ({ order_id: 200 + i, dish_id, quantity, unit_price: 100, unit_cost: 10 })),
+    productionLog: [
+      { id: 300, week_id: 3, dish_id: 10, quantity_produced: 10, date_produced: '2026-07-06' },
+      { id: 301, week_id: 3, dish_id: 11, quantity_produced: 2, date_produced: '2026-07-06' },
+      { id: 302, week_id: 4, dish_id: 10, quantity_produced: 8, date_produced: '2026-07-13' },
+      { id: 303, week_id: 5, dish_id: 10, quantity_produced: 8, date_produced: '2026-07-20' }
+    ],
+    _paidMigrated: true
+  }
+}
+
+function testOverproductionTrend() {
+  log('\n--- testOverproductionTrend ---')
+  withFixtureStore(PRODUCTION_FIXTURE(), (s) => runSafe('testOverproductionTrend', () => {
+    const r = s.getOverproductionTrend('2026-07-05', '2026-07-25')
+    assert(r.weeks.map(w => `${w.week_start}:${w.units}:${w.cost}`).join(',') === '2026-07-05:8:4680,2026-07-12:2:1400,2026-07-19:0:0', 'Weekly leftover units and cost at current dish cost', JSON.stringify(r.weeks), 'critical')
+    assert(r.totalUnits === 10 && r.totalCost === 6080, 'Totals for the range', JSON.stringify({ u: r.totalUnits, c: r.totalCost }), 'high')
+    assert(r.trend === 'down' && r.slope === -2340, 'Cost trend from a least-squares slope', JSON.stringify({ t: r.trend, s: r.slope }), 'high')
+    assert(r.byDish.map(d => `${d.name}:${d.units}:${d.cost}`).join(',') === 'Tarta:8:5600,Pizza:2:480', 'Dishes that leave most waste first', JSON.stringify(r.byDish))
+    const two = s.getOverproductionTrend('2026-07-05', '2026-07-18')
+    assert(two.weeks.length === 2 && two.trend === null, 'Fewer than 3 weeks has no trend', JSON.stringify(two))
+    const empty = s.getOverproductionTrend('2030-01-01', '2030-01-31')
+    assert(empty.weeks.length === 0 && empty.totalCost === 0 && empty.trend === null, 'Empty range', JSON.stringify(empty))
+  }))
+}
+
+function testWeekForecast() {
+  log('\n--- testWeekForecast ---')
+  withFixtureStore(PRODUCTION_FIXTURE(), (s) => runSafe('testWeekForecast', () => {
+    const r = s.getWeekForecast('2026-07-26')
+    assert(r.weekStart === '2026-07-26' && JSON.stringify(r.weights) === '{"recent":0.5,"lastYearWeek":0.3,"lastYearMonth":0.2}', 'All three components present → 50/30/20', JSON.stringify(r.weights), 'high')
+    assert(r.dishes.map(d => d.name).join(',') === 'Tarta,Pizza', 'Only active, existing dishes, biggest first', JSON.stringify(r.dishes.map(d => d.name)), 'high')
+    const t = r.dishes[0]
+    assert(JSON.stringify(t.basis) === '{"recent":6,"lastYearWeek":10,"lastYearMonth":6}', 'Basis: last 8 weeks, same week last year ±1, same month last year', JSON.stringify(t.basis), 'critical')
+    assert(t.forecast === 8 && t.low === 5 && t.high === 9, 'Weighted forecast rounded up, ±1 std dev of recent weeks', JSON.stringify(t), 'critical')
+    const p = r.dishes[1]
+    assert(p.forecast === 1 && p.low === 0 && p.high === 2, 'Weeks without the dish count as 0 when the week exists', JSON.stringify(p), 'high')
+    assert(r.totalForecast === 9, 'Total forecast units', `${r.totalForecast}`)
+    const red = s.getWeekForecast('2026-08-02')
+    assert(red.weights.recent === 0.625 && red.weights.lastYearWeek === 0.375 && red.weights.lastYearMonth === null, 'Missing component weight is redistributed', JSON.stringify(red.weights), 'high')
+    assert(red.dishes[0].forecast === 8 && red.dishes[0].basis.lastYearMonth === null, 'Forecast uses the redistributed weights', JSON.stringify(red.dishes[0]))
+    assert(s.getWeekForecast('2026-07-29').weekStart === '2026-07-26', 'Any date is moved to the Sunday of its week')
+    const none = s.getWeekForecast('2027-06-06')
+    assert(none.dishes.length === 0 && none.totalForecast === 0 && none.weights.recent === null, 'No history → empty forecast', JSON.stringify(none))
+    const def = s.getWeekForecast('bad')
+    assert(/^\d{4}-\d{2}-\d{2}$/.test(def.weekStart) && new Date(def.weekStart + 'T00:00:00').getDay() === 0, 'Invalid date defaults to a Sunday (next week)', def.weekStart)
+  }))
+}
+
+function testProjectedShopping() {
+  log('\n--- testProjectedShopping ---')
+  withFixtureStore(PRODUCTION_FIXTURE(), (s) => runSafe('testProjectedShopping', () => {
+    const r = s.getProjectedShopping('2026-07-26')
+    assert(r.weekStart === '2026-07-26', 'Same week as the forecast', r.weekStart)
+    assert(r.items.map(i => `${i.name}:${i.total}:${i.unit}`).join(',') === 'Harina:4:kg,Queso:0.2:kg', 'Forecast × recipe, sorted by name', JSON.stringify(r.items), 'critical')
+    assert(r.items[0].cost === 1400 && r.items[0].totalCost === 5600 && r.totalCost === 5840, 'Unit cost, line cost and total', JSON.stringify(r), 'high')
+    assert(r.missingRecipe.length === 0, 'All forecast dishes have a recipe', JSON.stringify(r.missingRecipe))
+  }))
+  const fixture = PRODUCTION_FIXTURE()
+  fixture.dishes[1].ingredients = []
+  fixture.ingredients.push({ id: 3, name: 'Masa', unit: 'uni', cost: 0, batchYield: 2, subIngredients: [{ ingredientId: 2, quantity: 1 }] })
+  fixture.dishes[0].ingredients = [{ ingredientId: 3, quantity: 1 }]
+  withFixtureStore(fixture, (s) => runSafe('testProjectedShopping composite', () => {
+    const r = s.getProjectedShopping('2026-07-26')
+    assert(r.items.length === 1 && r.items[0].name === 'Queso' && r.items[0].total === 4, 'Composite ingredients expand with batchYield', JSON.stringify(r.items), 'high')
+    assert(r.missingRecipe.join(',') === 'Pizza', 'Dishes without recipe are reported', JSON.stringify(r.missingRecipe))
+    const none = s.getProjectedShopping('2027-06-06')
+    assert(none.items.length === 0 && none.totalCost === 0, 'No forecast → empty list', JSON.stringify(none))
+  }))
+}
+
+const OPS_FIXTURE = () => {
+  const o = (id, week_id, status, extra = {}) => ({ id, week_id, client_id: 20, status, paid: status === 'delivered', created_at: '2026-07-06 10:00:00', ...extra })
+  return {
+    weeks: [
+      { id: 3, week_start: '2026-06-28', week_end: '2026-07-04' },
+      { id: 1, week_start: '2026-07-05', week_end: '2026-07-11' },
+      { id: 2, week_start: '2026-07-12', week_end: '2026-07-18' }
+    ],
+    clients: [{ id: 20, name: 'Ana', last_name: 'A' }],
+    orders: [
+      o(50, 1, 'delivered', { delivered_at: '2026-07-10 18:00:00', created_at: '2026-07-06 10:15:00' }),
+      o(51, 1, 'delivered', { delivered_at: '2026-07-12 10:00:00', created_at: '2026-07-06 10:30:00' }),
+      o(52, 1, 'delivered', { created_at: '2026-07-06T10:59:00' }),
+      o(53, 1, 'assembled', { created_at: '2026-07-10 09:00:00' }),
+      o(54, 1, 'pending', { created_at: '2026-07-11 20:00:00' }),
+      o(55, 1, 'confirmed', { created_at: 'garbage' }),
+      o(56, 1, 'confirmed', { created_at: '2026-07-07 10:00:00' }),
+      o(57, 2, 'pending', { created_at: null }),
+      o(58, 2, 'assembled', { created_at: '' })
+    ],
+    _paidMigrated: true
+  }
+}
+
+function testWeekFulfillment() {
+  log('\n--- testWeekFulfillment ---')
+  withFixtureStore(OPS_FIXTURE(), (s) => runSafe('testWeekFulfillment', () => {
+    const r = s.getWeekFulfillment('2026-06-28', '2026-07-18', '2026-07-15')
+    assert(r.weeks.map(w => w.week_start).join(',') === '2026-06-28,2026-07-05,2026-07-12', 'One row per week in range, oldest first', JSON.stringify(r.weeks.map(w => w.week_start)), 'high')
+    const empty = r.weeks[0]
+    assert(empty.orders === 0 && empty.assembledPct === null && empty.onTimePct === null, 'Week without orders has null percentages', JSON.stringify(empty))
+    const w = r.weeks[1]
+    assert(w.orders === 7 && w.assembled === 4 && w.delivered === 3, 'Counts orders, assembled (assembled+delivered) and delivered', JSON.stringify(w), 'critical')
+    assert(w.onTime === 2 && w.late === 1, 'On time = delivered by Saturday 23:59 or without timestamp; later = late', JSON.stringify(w), 'critical')
+    assert(w.open === 4 && w.closed === true, 'Undelivered orders of a closed week are open', JSON.stringify(w), 'high')
+    assert(Math.round(w.assembledPct * 100) / 100 === 57.14 && Math.round(w.onTimePct * 100) / 100 === 28.57, 'Percentages over all orders of the week', JSON.stringify(w))
+    const cur = r.weeks[2]
+    assert(cur.closed === false && cur.open === 0 && cur.orders === 2 && cur.assembled === 1, 'Week in progress has no open orders yet', JSON.stringify(cur), 'high')
+    assert(r.totals.orders === 9 && r.totals.onTime === 2 && r.totals.late === 1 && r.totals.open === 4 && r.totals.delivered === 3, 'Range totals', JSON.stringify(r.totals))
+    assert(s.getWeekFulfillment('2030-01-01', '2030-01-31', '2026-07-15').weeks.length === 0, 'Empty range')
+    assert(Array.isArray(s.getWeekFulfillment('bad', 'worse', 'nope').weeks), 'Invalid dates do not throw')
+  }))
+}
+
+function testOrderTimeHeatmap() {
+  log('\n--- testOrderTimeHeatmap ---')
+  withFixtureStore(OPS_FIXTURE(), (s) => runSafe('testOrderTimeHeatmap', () => {
+    const r = s.getOrderTimeHeatmap('2026-07-05', '2026-07-11')
+    assert(r.grid.length === 7 && r.grid.every(row => row.length === 24), 'Grid is 7 days × 24 hours', JSON.stringify(r.grid.map(x => x.length)), 'high')
+    assert(r.total === 6, 'Only orders with a valid created_at count (both formats)', `${r.total}`, 'critical')
+    assert(r.grid[1][10] === 3 && r.grid[2][10] === 1 && r.grid[5][9] === 1 && r.grid[6][20] === 1, 'Counts by local weekday (0 = domingo) and hour', JSON.stringify(r.grid.map(x => x.join(''))), 'critical')
+    assert(r.byDay.join(',') === '0,3,1,0,0,1,1' && r.byHour[10] === 4, 'Totals by day and hour', JSON.stringify({ d: r.byDay, h: r.byHour }))
+    assert(JSON.stringify(r.peak) === '{"day":1,"hour":10,"count":3}', 'Peak cell', JSON.stringify(r.peak), 'high')
+    assert(Math.round(r.lateShare * 100) / 100 === 33.33, 'Share loaded on Friday or Saturday', `${r.lateShare}`, 'high')
+    const empty = s.getOrderTimeHeatmap('2030-01-01', '2030-01-31')
+    assert(empty.total === 0 && empty.peak === null && empty.lateShare === null, 'Empty range', JSON.stringify({ t: empty.total, p: empty.peak, l: empty.lateShare }))
+  }))
+  const fixture = OPS_FIXTURE()
+  fixture.orders = [
+    { id: 60, week_id: 1, client_id: 20, status: 'pending', created_at: '2026-07-07 09:00:00' },
+    { id: 61, week_id: 1, client_id: 20, status: 'pending', created_at: '2026-07-06 09:00:00' }
+  ]
+  withFixtureStore(fixture, (s) => runSafe('testOrderTimeHeatmap tie', () => {
+    const r = s.getOrderTimeHeatmap('2026-07-05', '2026-07-11')
+    assert(r.peak.day === 1 && r.peak.hour === 9, 'Ties go to the earliest cell in the week', JSON.stringify(r.peak))
+  }))
 }
 
 function main() {
@@ -1217,6 +1731,21 @@ function main() {
   testPaidRevenue()
   testOrderWeekAttribution()
   testThemeContrast()
+  testOrderStatusTimestamps()
+  testPendingCollections()
+  testMarginErosion()
+  testIngredientCostDrivers()
+  testDishMatrix()
+  testWhatsappUrl()
+  testLapsedClients()
+  testClientValue()
+  testDishPairs()
+  testSalesByZone()
+  testOverproductionTrend()
+  testWeekForecast()
+  testProjectedShopping()
+  testWeekFulfillment()
+  testOrderTimeHeatmap()
   testCompositeIngredient(store)
   testCompositeShoppingListLocal(store, seed)
   testCircularComposite(store)

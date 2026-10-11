@@ -129,6 +129,8 @@
       delivery_day: o.delivery_day || null,
       paid: !!o.paid,
       paid_at: o.paid_at || null,
+      assembled_at: o.assembled_at || null,
+      delivered_at: o.delivered_at || null,
       client_name: client ? `${client.name} ${client.last_name}`.trim() : '—',
       client_phone: client?.phone || '',
       client_address: client?.address || '',
@@ -439,6 +441,7 @@
         const order = DATA.orders.find(o => o.id === id)
         if (!order || !pastWeekIds.has(order.week_id) || order.status === 'delivered') continue
         order.status = 'delivered'
+        order.delivered_at = new Date().toISOString()
         updated++
       }
       return Promise.resolve({ success: true, updated })
@@ -459,25 +462,26 @@
       const order = DATA.orders.find(o => o.id === id)
       if (order && (order.status === 'pending' || order.status === 'confirmed')) {
         order.status = 'assembled'
+        order.assembled_at = new Date().toISOString()
       }
       return Promise.resolve({ success: true })
     },
 
     unmarkOrderAssembled(id) {
       const order = DATA.orders.find(o => o.id === id)
-      if (order && order.status === 'assembled') order.status = 'confirmed'
+      if (order && order.status === 'assembled') { order.status = 'confirmed'; order.assembled_at = null }
       return Promise.resolve({ success: true })
     },
 
     markOrderDelivered(id) {
       const order = DATA.orders.find(o => o.id === id)
-      if (order && order.status === 'assembled') order.status = 'delivered'
+      if (order && order.status === 'assembled') { order.status = 'delivered'; order.delivered_at = new Date().toISOString() }
       return Promise.resolve({ success: true })
     },
 
     unmarkOrderDelivered(id) {
       const order = DATA.orders.find(o => o.id === id)
-      if (order && order.status === 'delivered') order.status = 'assembled'
+      if (order && order.status === 'delivered') { order.status = 'assembled'; order.delivered_at = null }
       return Promise.resolve({ success: true })
     },
 
@@ -540,6 +544,247 @@
     setRouteCache(weekId, cache) {
       DATA.routeCache = JSON.parse(JSON.stringify({ ...cache, weekId }))
       return Promise.resolve({ success: true })
+    },
+
+    getPendingCollections() {
+      const byClient = {}
+      let total = 0
+      let deliveryFees = 0
+      for (const o of DATA.orders) {
+        if (o.status !== 'delivered' || o.paid) continue
+        const amount = o.items.reduce((s, i) => s + (i.unit_price || 0) * i.quantity, 0)
+        const fee = o.has_delivery ? (o.delivery_fee || 0) : 0
+        const since = (o.delivered_at || orderDate(o)).slice(0, 10)
+        const client = DATA.clients.find(c => c.id === o.client_id)
+        const c = byClient[o.client_id] || (byClient[o.client_id] = { clientId: o.client_id, name: client ? `${client.name} ${client.last_name}`.trim() : '—', phone: client?.phone || '', amount: 0, deliveryFees: 0, orders: 0, oldestSince: since })
+        c.amount += amount
+        c.deliveryFees += fee
+        c.orders++
+        if (since < c.oldestSince) c.oldestSince = since
+        total += amount
+        deliveryFees += fee
+      }
+      const list = Object.values(byClient).map(c => ({ ...c, daysOwed: Math.max(0, Math.round((Date.now() - new Date(c.oldestSince + 'T00:00:00')) / 864e5)) })).sort((a, b) => b.amount - a.amount)
+      return Promise.resolve({ total, deliveryFees, byClient: list, payTimes: [{ clientId: 1, name: 'Juan Perez', avgDays: 2, samples: 3 }], avgDaysToPay: 2 })
+    },
+
+    getMarginErosion(startDate, endDate) {
+      const byDish = {}
+      DATA.orders.filter(o => isRevenueOrder(o) && (!startDate || inRange(o, startDate, endDate))).forEach(o => {
+        o.items.forEach(i => {
+          const d = byDish[i.dishId] || (byDish[i.dishId] = { revenue: 0, cost: 0, quantity: 0, week: orderDate(o) })
+          d.revenue += (i.unit_price || 0) * i.quantity
+          d.cost += (i.unit_cost || 0) * i.quantity
+          d.quantity += i.quantity
+        })
+      })
+      return Promise.resolve(Object.entries(byDish).map(([id, v]) => {
+        const dish = DATA.dishes.find(d => d.id === parseInt(id))
+        const marginStart = Math.round((v.revenue - v.cost) / v.revenue * 10000) / 100
+        const costNow = (dish?.computedCost || 0) * 1.4
+        const priceNow = dish?.price || 0
+        const marginNow = priceNow > 0 ? Math.round((priceNow - costNow) / priceNow * 10000) / 100 : null
+        return { dishId: parseInt(id), name: dish?.name || '?', firstWeek: v.week, lastWeek: v.week, priceStart: v.revenue / v.quantity, costStart: v.cost / v.quantity, priceNow, costNow, marginStart, marginEnd: marginStart, marginNow, deltaPp: marginNow === null ? null : Math.round((marginNow - marginStart) * 100) / 100, costChangePct: 40, priceChangePct: 0, suggestedPrice: Math.ceil(costNow / (1 - marginStart / 100) / 10) * 10 }
+      }).sort((a, b) => a.deltaPp - b.deltaPp))
+    },
+
+    getIngredientCostDrivers(startDate, endDate, limit = 10) {
+      const agg = {}
+      DATA.orders.filter(o => isRevenueOrder(o) && (!startDate || inRange(o, startDate, endDate))).forEach(o => {
+        o.items.forEach(i => {
+          const dish = DATA.dishes.find(d => d.id === i.dishId)
+          ;(dish?.ingredients || []).forEach(r => {
+            const ing = DATA.ingredients.find(x => x.id === r.ingredientId)
+            if (!ing) return
+            const a = agg[ing.id] || (agg[ing.id] = { ingredientId: ing.id, name: ing.name, unit: ing.unit, quantity: 0, cost: 0 })
+            a.quantity += r.quantity * i.quantity
+            a.cost += r.quantity * i.quantity * ing.cost
+          })
+        })
+      })
+      const sorted = Object.values(agg).sort((a, b) => b.cost - a.cost)
+      const totalCost = sorted.reduce((s, a) => s + a.cost, 0)
+      let running = 0
+      const items = sorted.slice(0, limit).map(a => { running += a.cost; return { ...a, share: a.cost / totalCost * 100, cumulativeShare: running / totalCost * 100 } })
+      return Promise.resolve({ totalCost, items, missingRecipe: [] })
+    },
+
+    getDishMatrix(startDate, endDate) {
+      const byDish = {}
+      DATA.orders.filter(o => isRevenueOrder(o) && (!startDate || inRange(o, startDate, endDate))).forEach(o => {
+        o.items.forEach(i => {
+          const dish = DATA.dishes.find(d => d.id === i.dishId)
+          const d = byDish[i.dishId] || (byDish[i.dishId] = { dishId: i.dishId, name: dish?.name || '?', units: 0, revenue: 0, cost: 0 })
+          d.units += i.quantity
+          d.revenue += (i.unit_price || 0) * i.quantity
+          d.cost += (i.unit_cost || 0) * i.quantity
+        })
+      })
+      const dishes = Object.values(byDish).map(d => ({ ...d, profit: d.revenue - d.cost, margin: d.revenue > 0 ? Math.round((d.revenue - d.cost) / d.revenue * 10000) / 100 : 0 }))
+      const med = (arr) => { if (!arr.length) return null; const s = [...arr].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+      const medianUnits = med(dishes.map(d => d.units))
+      const medianMargin = med(dishes.map(d => d.margin))
+      const groups = { promote: [], raisePrice: [], review: [], remove: [] }
+      dishes.forEach(d => {
+        const popular = d.units >= medianUnits
+        const profitable = d.margin >= medianMargin
+        groups[popular ? (profitable ? 'promote' : 'raisePrice') : (profitable ? 'review' : 'remove')].push(d)
+      })
+      return Promise.resolve({ medianUnits, medianMargin, groups })
+    },
+
+    getLapsedClients() {
+      return Promise.resolve([{ clientId: 4, name: 'Ana Martinez', phone: '11 5555 0303', orders: 6, medianIntervalDays: 7, thresholdDays: 21, daysSince: 45, lastOrderAt: '2026-06-05' }])
+    },
+
+    getClientValue(startDate, endDate) {
+      const byClient = {}
+      DATA.orders.filter(o => isRevenueOrder(o) && (!startDate || inRange(o, startDate, endDate))).forEach(o => {
+        const c = byClient[o.client_id] || (byClient[o.client_id] = { orders: 0, total: 0, weeks: new Set() })
+        c.orders++
+        c.total += o.items.reduce((s, i) => s + (i.unit_price || 0) * i.quantity, 0)
+        c.weeks.add(orderDate(o))
+      })
+      return Promise.resolve(Object.entries(byClient).map(([id, c]) => {
+        const client = DATA.clients.find(x => x.id === parseInt(id))
+        const firstOrder = DATA.orders.filter(o => o.client_id === parseInt(id)).map(orderDate).sort()[0].slice(0, 10)
+        return { clientId: parseInt(id), name: client ? `${client.name} ${client.last_name}`.trim() : '—', orders: c.orders, total: c.total, avgTicket: c.total / c.orders, firstOrder, tenureDays: 30, activeWeeks: c.weeks.size, weeksSinceFirst: 2, frequency: c.orders / 2, segment: c.orders >= 2 ? 'fiel' : 'ocasional' }
+      }).sort((a, b) => b.total - a.total))
+    },
+
+    getDishPairs(startDate, endDate, minSupport = 2) {
+      const baskets = DATA.orders.filter(o => isRevenueOrder(o) && (!startDate || inRange(o, startDate, endDate))).map(o => [...new Set(o.items.map(i => i.dishId))].sort((a, b) => a - b))
+      const single = {}
+      const pairs = {}
+      baskets.forEach(b => {
+        b.forEach(id => { single[id] = (single[id] || 0) + 1 })
+        for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) pairs[`${b[i]}-${b[j]}`] = (pairs[`${b[i]}-${b[j]}`] || 0) + 1
+      })
+      const name = id => DATA.dishes.find(d => d.id === id)?.name || '?'
+      return Promise.resolve({
+        totalOrders: baskets.length,
+        pairs: Object.entries(pairs).filter(([, n]) => n >= minSupport).map(([k, count]) => {
+          const [a, b] = k.split('-').map(Number)
+          return { a: { dishId: a, name: name(a) }, b: { dishId: b, name: name(b) }, count, support: Math.round(count / baskets.length * 10000) / 100, lift: Math.round(count * baskets.length / (single[a] * single[b]) * 100) / 100 }
+        }).sort((x, y) => y.count - x.count || y.lift - x.lift).slice(0, 15)
+      })
+    },
+
+    getSalesByZone(startDate, endDate) {
+      const zones = {}
+      DATA.orders.filter(o => isRevenueOrder(o) && (!startDate || inRange(o, startDate, endDate))).forEach(o => {
+        const client = DATA.clients.find(c => c.id === o.client_id)
+        const zone = (client?.locality || '').trim() || 'Sin localidad'
+        const z = zones[zone] || (zones[zone] = { zone, clients: new Set(), orders: 0, revenue: 0, deliveries: 0, fees: 0 })
+        z.clients.add(o.client_id)
+        z.orders++
+        z.revenue += o.items.reduce((s, i) => s + (i.unit_price || 0) * i.quantity, 0)
+        if (o.has_delivery) { z.deliveries++; z.fees += o.delivery_fee || 0 }
+      })
+      return Promise.resolve(Object.values(zones).map(z => ({ zone: z.zone, clients: z.clients.size, orders: z.orders, revenue: z.revenue, avgTicket: z.revenue / z.orders, deliveryShare: Math.round(z.deliveries / z.orders * 10000) / 100, avgDeliveryFee: z.deliveries ? z.fees / z.deliveries : null })).sort((a, b) => b.revenue - a.revenue))
+    },
+
+    getOverproductionTrend(startDate, endDate) {
+      const byDish = {}
+      const weeks = [...WEEKS].filter(w => (!startDate || w.week_start >= startDate) && (!endDate || w.week_start <= endDate)).sort((a, b) => a.week_start.localeCompare(b.week_start)).map(w => {
+        const produced = {}
+        DATA.production.filter(p => p.date >= w.week_start && p.date <= w.week_end).forEach(p => { produced[p.dish_id] = (produced[p.dish_id] || 0) + p.quantity_produced })
+        const ordered = {}
+        DATA.orders.filter(o => o.week_id === w.id).forEach(o => o.items.forEach(i => { ordered[i.dishId] = (ordered[i.dishId] || 0) + i.quantity }))
+        let units = 0
+        let cost = 0
+        Object.entries(produced).forEach(([id, qty]) => {
+          const over = Math.max(0, qty - (ordered[id] || 0))
+          if (!over) return
+          const dish = DATA.dishes.find(d => d.id === parseInt(id))
+          const c = over * (dish?.computedCost || 0)
+          units += over
+          cost += c
+          const d = byDish[id] || (byDish[id] = { dishId: parseInt(id), name: dish?.name || '?', units: 0, cost: 0 })
+          d.units += over
+          d.cost += c
+        })
+        return { week_start: w.week_start, units, cost }
+      })
+      const costs = weeks.map(w => w.cost)
+      const trend = costs.length >= 3 ? (costs[costs.length - 1] < costs[0] ? 'down' : costs[costs.length - 1] > costs[0] ? 'up' : 'flat') : null
+      return Promise.resolve({ weeks, totalUnits: weeks.reduce((s, w) => s + w.units, 0), totalCost: costs.reduce((s, c) => s + c, 0), trend, slope: trend ? (costs[costs.length - 1] - costs[0]) / (costs.length - 1) : null, byDish: Object.values(byDish).sort((a, b) => b.cost - a.cost).slice(0, 5) })
+    },
+
+    getWeekForecast(weekStart) {
+      const target = weekStart || '2026-07-26'
+      const recent = WEEKS
+      const demand = recent.map(w => {
+        const o = {}
+        DATA.orders.filter(x => x.week_id === w.id).forEach(x => x.items.forEach(i => { o[i.dishId] = (o[i.dishId] || 0) + i.quantity }))
+        return o
+      })
+      const ids = new Set(demand.flatMap(o => Object.keys(o)))
+      const dishes = [...ids].map(id => {
+        const dish = DATA.dishes.find(d => d.id === parseInt(id))
+        if (!dish || dish.is_active === false) return null
+        const values = demand.map(o => o[id] || 0)
+        const mean = values.reduce((a, b) => a + b, 0) / values.length
+        const sd = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length)
+        return { dishId: dish.id, name: dish.name, forecast: Math.ceil(mean), low: Math.max(0, Math.floor(mean - sd)), high: Math.ceil(mean + sd), basis: { recent: Math.round(mean * 100) / 100, lastYearWeek: null, lastYearMonth: null } }
+      }).filter(d => d && d.forecast > 0).sort((a, b) => b.forecast - a.forecast || a.name.localeCompare(b.name))
+      return Promise.resolve({ weekStart: target, weights: { recent: recent.length ? 1 : null, lastYearWeek: null, lastYearMonth: null }, dishes, totalForecast: dishes.reduce((s, d) => s + d.forecast, 0) })
+    },
+
+    async getProjectedShopping(weekStart) {
+      const fc = await window.piu.getWeekForecast(weekStart)
+      const agg = {}
+      const missingRecipe = []
+      fc.dishes.forEach(f => {
+        const dish = DATA.dishes.find(d => d.id === f.dishId)
+        if (!dish?.ingredients?.length) { missingRecipe.push(f.name); return }
+        dish.ingredients.forEach(r => {
+          const ing = DATA.ingredients.find(i => i.id === r.ingredientId)
+          if (!ing) return
+          const a = agg[ing.id] || (agg[ing.id] = { ingredientId: ing.id, name: ing.name, unit: ing.unit, total: 0, cost: ing.cost })
+          a.total += r.quantity * f.forecast
+        })
+      })
+      const items = Object.values(agg).map(a => ({ ...a, total: Math.round(a.total * 10000) / 10000, totalCost: Math.round(a.total * a.cost * 100) / 100 })).sort((a, b) => a.name.localeCompare(b.name))
+      return { weekStart: fc.weekStart, items, totalCost: items.reduce((s, i) => s + i.totalCost, 0), missingRecipe }
+    },
+
+    getWeekFulfillment(startDate, endDate) {
+      const today = new Date().toISOString().slice(0, 10)
+      const pct = (n, t) => t > 0 ? n / t * 100 : null
+      const weeks = [...WEEKS].filter(w => (!startDate || w.week_start >= startDate) && (!endDate || w.week_start <= endDate)).sort((a, b) => a.week_start.localeCompare(b.week_start)).map(w => {
+        const closed = w.week_end < today
+        const row = { week_start: w.week_start, closed, orders: 0, assembled: 0, delivered: 0, onTime: 0, late: 0, open: 0 }
+        DATA.orders.filter(o => o.week_id === w.id).forEach(o => {
+          row.orders++
+          if (o.status === 'assembled' || o.status === 'delivered') row.assembled++
+          if (o.status === 'delivered') {
+            row.delivered++
+            if (o.delivered_at && o.delivered_at.replace('T', ' ') > `${w.week_end} 23:59:59`) row.late++
+            else row.onTime++
+          } else if (closed) row.open++
+        })
+        return { ...row, assembledPct: pct(row.assembled, row.orders), onTimePct: pct(row.onTime, row.orders) }
+      })
+      const totals = { orders: 0, assembled: 0, delivered: 0, onTime: 0, late: 0, open: 0 }
+      weeks.forEach(w => Object.keys(totals).forEach(k => { totals[k] += w[k] }))
+      return Promise.resolve({ weeks, totals: { ...totals, onTimePct: pct(totals.onTime, totals.orders) } })
+    },
+
+    getOrderTimeHeatmap(startDate, endDate) {
+      const grid = Array.from({ length: 7 }, () => Array(24).fill(0))
+      let total = 0
+      DATA.orders.filter(o => !startDate || inRange(o, startDate, endDate)).forEach(o => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})/.exec(o.created_at || '')
+        if (!m) return
+        grid[new Date(+m[1], +m[2] - 1, +m[3]).getDay()][+m[4]]++
+        total++
+      })
+      let peak = null
+      grid.forEach((row, day) => row.forEach((count, hour) => { if (count > 0 && (!peak || count > peak.count)) peak = { day, hour, count } }))
+      const byDay = grid.map(r => r.reduce((a, b) => a + b, 0))
+      const byHour = Array.from({ length: 24 }, (_, h) => grid.reduce((s, r) => s + r[h], 0))
+      return Promise.resolve({ grid, total, byDay, byHour, peak, lateShare: total ? (byDay[5] + byDay[6]) / total * 100 : null })
     },
 
     getAnalytics() { return this.getAnalyticsFiltered(null, null) },

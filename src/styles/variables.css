@@ -178,6 +178,7 @@
 
 .font-small {
   --font-body: 16px;
+  --font-md: 17px;
   --font-lg: 26px;
   --font-xl: 36px;
   --font-sm: 14px;
@@ -192,6 +193,7 @@
 
 .font-large {
   --font-body: 28px;
+  --font-md: 30px;
   --font-lg: 44px;
   --font-xl: 56px;
   --font-sm: 22px;
@@ -206,6 +208,7 @@
 
 .macro-mode {
   --font-body: 44px;
+  --font-md: 48px;
   --font-lg: 64px;
   --font-xl: 80px;
   --font-sm: 32px;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, lazy, Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import { HeaderProvider } from './components/HeaderContext'
@@ -8,9 +8,11 @@ import Dashboard from './pages/Dashboard'
 import Orders from './pages/Orders'
 import Menu from './pages/Menu'
 import Clients from './pages/Clients'
-import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
 import Ingredients from './pages/Ingredients'
+import { SkeletonAnalytics } from './components/Skeleton'
+
+const Analytics = lazy(() => import('./pages/Analytics'))
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('piu-theme') || 'claro')
@@ -38,7 +40,7 @@ export default function App() {
             <Route path="/orders" element={<Orders />} />
             <Route path="/menu" element={<Menu />} />
             <Route path="/clients" element={<Clients />} />
-            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/analytics" element={<Suspense fallback={<SkeletonAnalytics />}><Analytics /></Suspense>} />
             <Route path="/ingredients" element={<Ingredients />} />
             <Route path="/settings" element={<Settings theme={theme} setTheme={setTheme} macroMode={macroMode} setMacroMode={setMacroMode} fontSize={fontSize} setFontSize={setFontSize} />} />
           </Routes>

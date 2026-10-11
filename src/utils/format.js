@@ -50,9 +50,9 @@ export function formatWeekRange(start, end) {
 }
 
 export const ORDER_STATUS = {
-  pending: { label: 'Pendiente', badge: 'badge-warning' },
-  confirmed: { label: 'Pendiente', badge: 'badge-warning' },
-  assembled: { label: 'Armado', badge: 'badge-info' },
+  pending: { label: 'Pendiente', badge: 'badge-accent' },
+  confirmed: { label: 'Pendiente', badge: 'badge-accent' },
+  assembled: { label: 'Armado', badge: 'badge-warning' },
   delivered: { label: 'Entregado', badge: 'badge-success' }
 }
 

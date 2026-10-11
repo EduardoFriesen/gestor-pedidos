@@ -777,35 +777,6 @@ async function runAll() {
     assert(await page.locator('button:has-text("Este mes")').first().isVisible(), 'Month filter not found')
   })
 
-  await runSuite('Analytics: tab buttons exist', async () => {
-    assert(await page.locator('button:has-text("Top Platos")').first().isVisible(), 'Top tab not found')
-    assert(await page.locator('button:has-text("Top Clientes")').first().isVisible(), 'Clients tab not found')
-    assert(await page.locator('button:has-text("Tendencias")').first().isVisible(), 'Trends tab not found')
-    assert(await page.locator('button:has-text("Comparativa")').first().isVisible(), 'Comparison tab not found')
-  })
-
-  await runSuite('Analytics: switch tabs', async () => {
-    await page.locator('button:has-text("Top Clientes")').first().click()
-    await page.waitForTimeout(600)
-    assert(await page.locator('text=Gastado').count() > 0 || await page.locator('text=Clientes').count() > 0, 'Top Clientes tab rendered')
-
-    await page.locator('button:has-text("Tendencias")').first().click()
-    await page.waitForTimeout(600)
-    assert(await page.locator('text=Mensual').count() > 0 || await page.locator('text=Tendencias').count() > 0, 'Tendencias tab rendered')
-
-    await page.locator('button:has-text("Comparativa")').first().click()
-    await page.waitForTimeout(600)
-
-    await page.locator('button:has-text("Top Platos")').first().click()
-    await page.waitForTimeout(600)
-    assert(true, 'All tabs switched successfully')
-  })
-
-  await runSuite('Analytics: sort buttons in Top tab', async () => {
-    const sortBtns = page.locator('button:has-text("Vendidos"), button:has-text("Ganancia"), button:has-text("Precio")')
-    assert(await sortBtns.first().count() > 0, 'No sort buttons found')
-  })
-
   await runSuite('Analytics: change filter preset', async () => {
     await page.locator('button:has-text("Este mes")').first().click()
     await page.waitForTimeout(1000)
@@ -824,39 +795,173 @@ async function runAll() {
     }
   })
 
-  await runSuite('Analytics: pagination buttons in Top tab', async () => {
-    const nextBtn = page.locator('button:has-text("Siguiente")')
-    const prevBtn = page.locator('button:has-text("Anterior")')
-    if (await nextBtn.count() > 0) assert(await nextBtn.first().isVisible(), 'Next button visible')
-    if (await prevBtn.count() > 0) assert(await prevBtn.first().isVisible(), 'Prev button visible')
-    if (await nextBtn.count() === 0 && await prevBtn.count() === 0) assert(true, 'No pagination needed')
+  const analyticsTab = (label) => page.locator('[role="tab"]', { hasText: label })
+  const setPeriod = (label) => page.locator('[role="radiogroup"][aria-label="Período"] [role="radio"]', { hasText: label }).click()
+  const panelHeadings = () => page.locator('#analytics-panel .insight h3').allTextContents()
+
+  await runSuite('Analytics: tabs are grouped by topic', async () => {
+    const labels = (await page.locator('[role="tablist"][aria-label="Vistas de análisis"] [role="tab"]').allTextContents()).map(t => t.trim())
+    assert(JSON.stringify(labels) === JSON.stringify(['Ventas', 'Platos', 'Clientes', 'Finanzas', 'Planificación', 'Operación']), `Tabs: ${labels}`)
+    assert(await analyticsTab('Ventas').getAttribute('aria-selected') === 'true', 'Ventas is the default tab')
   })
 
-  await runSuite('Analytics: expand dish row', async () => {
-    const headers = page.locator('button:has-text("▸"), button:has-text("▾")')
-    if (await headers.count() > 0) {
-      await headers.first().click()
-      await page.waitForTimeout(600)
-      assert(true, 'Dish expand clicked')
-    } else {
-      assert(true, 'No expandable dish rows, skip')
+  await runSuite('Analytics: Ventas shows evolution and comparison with charts', async () => {
+    await setPeriod('Todo')
+    await analyticsTab('Ventas').click()
+    await waitForContent(page, '#analytics-panel svg.recharts-surface')
+    const headings = await panelHeadings()
+    for (const h of ['Evolución de ventas', 'Comparar períodos', 'Datos por período']) assert(headings.includes(h), `Missing "${h}": ${headings}`)
+    assert(await page.locator('#analytics-panel svg.recharts-surface').count() >= 2, 'Sales charts render with Recharts')
+    assert(await page.locator('[role="radiogroup"][aria-label="Agrupar por"] [role="radio"]').count() === 4, 'Trend grouping selector')
+  })
+
+  await runSuite('Analytics: hovering every chart shows a tooltip without crashing', async () => {
+    const errors = []
+    const onError = err => errors.push(err.message)
+    page.on('pageerror', onError)
+    for (const tab of ['Ventas', 'Platos', 'Clientes', 'Finanzas', 'Planificación', 'Operación']) {
+      await analyticsTab(tab).click()
+      await page.waitForTimeout(700)
+      const charts = page.locator('#analytics-panel .chart-frame')
+      const n = await charts.count()
+      for (let i = 0; i < n; i++) {
+        const box = await charts.nth(i).boundingBox()
+        if (!box) continue
+        for (const fx of [0.3, 0.5, 0.7]) {
+          await page.mouse.move(box.x + box.width * fx, box.y + box.height * 0.5)
+          await page.waitForTimeout(80)
+        }
+      }
+      assert(errors.length === 0, `${tab}: hovering a chart threw ${errors.join(' | ')}`)
+      assert(await page.locator('[role="tablist"][aria-label="Vistas de análisis"]').count() === 1, `${tab}: app still rendered after hover`)
     }
+    await page.mouse.move(0, 0)
+    page.off('pageerror', onError)
+    await analyticsTab('Ventas').click()
+    await page.locator('#analytics-panel .chart-frame').first().hover()
+    assert(await page.locator('.chart-tooltip').count() > 0, 'Tooltip appears on hover')
+    await page.mouse.move(0, 0)
   })
 
-  await runSuite('Analytics: trends tab renders', async () => {
-    await page.locator('button:has-text("Tendencias")').first().click()
-    await page.waitForTimeout(800)
-    const hasCharts = await page.locator('text=Mensual').count() > 0
-    const hasRevenue = await page.locator('text=Ingresos').count() > 0
-    assert(hasCharts || hasRevenue, 'Trends tab rendered with content')
+  await runSuite('Analytics: Platos shows ranking, matrix, margin and pairs', async () => {
+    await analyticsTab('Platos').click()
+    await waitForContent(page, '#analytics-panel .rank-list')
+    await waitForContent(page, '#analytics-panel .matrix-cell')
+    const headings = await panelHeadings()
+    for (const h of ['Ranking de platos', 'Qué hacer con cada plato', 'Margen perdido por aumentos de costo', 'Platos que se piden juntos']) assert(headings.includes(h), `Missing "${h}": ${headings}`)
+    assert(await page.locator('#analytics-panel .rank-item').count() > 0, 'Dish ranking items')
+    assert(await page.locator('.matrix-cell li').count() > 0, 'Matrix lists dishes')
+    assert(await page.locator('.insight', { hasText: 'Margen perdido' }).locator('tbody tr').count() > 0, 'Margin erosion rows')
+    assert(await page.locator('.insight', { hasText: 'Platos que se piden juntos' }).locator('.insight-empty').count() === 1, 'No repeated pairs in mock data → empty state')
+    assert(await page.locator('.insight', { hasText: 'Qué hacer con cada plato' }).locator('svg.recharts-surface').count() === 1, 'Matrix scatter chart')
+    assert(await page.locator('input[aria-label="Buscar plato"]').isVisible(), 'Dish search lives in the tab')
+    assert(await page.locator('button:has-text("Siguiente")').count() === 0, 'No pagination: lists scroll instead')
   })
 
-  await runSuite('Analytics: comparison tab renders', async () => {
-    await page.locator('button:has-text("Comparativa")').first().click()
+  await runSuite('Analytics: Platos search filters the ranking', async () => {
+    await page.locator('input[aria-label="Buscar plato"]').fill('pizza')
+    const names = await page.locator('#analytics-panel .rank-toggle').allTextContents()
+    assert(names.length > 0 && names.every(n => n.toLowerCase().includes('pizza')), `Filtered: ${names}`)
+    await page.locator('input[aria-label="Buscar plato"]').fill('')
+  })
+
+  await runSuite('Analytics: Clientes merges ranking and portfolio insights', async () => {
+    await analyticsTab('Clientes').click()
+    await waitForContent(page, '.insight .insight-table')
+    await page.waitForTimeout(300)
+    const headings = await panelHeadings()
+    for (const h of ['Ranking de clientes', 'Clientes que dejaron de pedir', 'Valor de cada cliente', 'Ventas por zona']) assert(headings.includes(h), `Missing "${h}": ${headings}`)
+    const value = page.locator('.insight', { hasText: 'Valor de cada cliente' })
+    assert(await value.locator('tbody tr').count() === 2, 'Client value lists the 2 paying clients')
+    assert((await value.locator('tbody tr').first().locator('th').textContent()).includes('Juan Perez'), 'Top spender first')
+    const zones = page.locator('.insight', { hasText: 'Ventas por zona' })
+    const zoneNames = await zones.locator('tbody th').allTextContents()
+    assert(zoneNames.includes('Sin localidad') && zoneNames.includes('Buenos Aires'), `Zones: ${zoneNames}`)
+    const baRow = await zones.locator('tbody tr', { hasText: 'Buenos Aires' }).textContent()
+    assert(baRow.includes('2.100') && !baRow.includes('2.400'), `Zone sales exclude the $300 delivery fee: ${baRow}`)
+    assert(await zones.locator('svg.recharts-surface').count() === 1, 'Zone bar chart')
+  })
+
+  await runSuite('Analytics: Clientes offers WhatsApp to lapsed clients', async () => {
+    const row = page.locator('.insight', { hasText: 'Clientes que dejaron de pedir' }).locator('tbody tr').first()
+    assert((await row.locator('th').textContent()).includes('Ana Martinez'), 'Lapsed client row')
+    assert((await row.textContent()).includes('cada 7 días'), 'Shows the usual rhythm')
+    const href = await row.locator('a', { hasText: 'WhatsApp' }).getAttribute('href')
+    assert(href && href.startsWith('https://wa.me/54911') && href.includes('?text='), `Bad WhatsApp link: ${href}`)
+  })
+
+  await runSuite('Analytics: Finanzas keeps collections and ingredient Pareto', async () => {
+    await analyticsTab('Finanzas').click()
+    await waitForContent(page, '.insight .insight-table')
+    const headings = await panelHeadings()
+    assert(JSON.stringify(headings) === JSON.stringify(['Cobranza pendiente', 'Ingredientes que más pesan en el costo']), `Finanzas: ${headings}`)
+    assert(await page.locator('.insight', { hasText: 'Cobranza pendiente' }).locator('.insight-empty').count() === 1, 'Collections empty when everything is paid')
+    const drivers = page.locator('.insight', { hasText: 'Ingredientes que más pesan' })
+    await drivers.locator('svg.recharts-surface').first().waitFor({ timeout: 5000 }).catch(() => {})
+    assert(await drivers.locator('tbody tr').count() > 0 && await drivers.locator('svg.recharts-surface').count() === 1, 'Pareto chart and table')
+  })
+
+  await runSuite('Analytics: Finanzas lists unpaid delivered orders with WhatsApp', async () => {
+    await page.evaluate(() => window.piu.unmarkOrderPaid(2))
+    await analyticsTab('Ventas').click()
+    await analyticsTab('Finanzas').click()
+    const card = page.locator('.insight', { hasText: 'Cobranza pendiente' })
+    await card.locator('tbody tr').first().waitFor({ timeout: 5000 })
+    const row = card.locator('tbody tr').first()
+    assert((await row.locator('th').textContent()).includes('Maria Garcia'), 'Debtor row should be Maria Garcia')
+    assert((await card.locator('.insight-figure strong').first().textContent()).includes('2.100'), 'Total owed should be $2.100')
+    assert((await card.textContent()).includes('envíos'), 'Delivery fees note should show')
+    const href = await row.locator('a', { hasText: 'WhatsApp' }).getAttribute('href')
+    assert(href && href.startsWith('https://wa.me/54911'), `Bad WhatsApp link: ${href}`)
+    await page.evaluate(() => window.piu.markOrderPaid(2))
+  })
+
+  await runSuite('Analytics: Planificación shows forecast, projected shopping and waste trend', async () => {
+    await analyticsTab('Planificación').click()
+    await waitForContent(page, '.insight .insight-table')
+    await page.waitForTimeout(400)
+    const headings = await panelHeadings()
+    for (const h of ['Pronóstico de la semana', 'Compra proyectada', 'Plata perdida por producir de más']) assert(headings.includes(h), `Missing "${h}": ${headings}`)
+    const weekOptions = page.locator('[role="radiogroup"][aria-label="Semana a planificar"] [role="radio"]')
+    assert(await weekOptions.count() === 2, 'Two weeks to plan')
+    assert(await weekOptions.nth(1).getAttribute('aria-checked') === 'true', 'Next week is selected by default')
+    const forecast = page.locator('.insight', { hasText: 'Pronóstico de la semana' })
+    assert(await forecast.locator('tbody tr').count() > 0, 'Forecast lists dishes')
+    assert((await forecast.textContent()).includes('100% últimas 8 semanas'), 'Weights note reflects available history')
+    assert(await forecast.locator('svg.recharts-surface').count() === 1, 'Forecast chart')
+    assert(await page.locator('.insight', { hasText: 'Compra proyectada' }).locator('tbody tr').count() > 0, 'Projected shopping lists ingredients')
+    const waste = page.locator('.insight', { hasText: 'Plata perdida por producir de más' })
+    assert((await waste.locator('.insight-figure strong').first().textContent()).includes('1.850'), 'Waste cost from the mock production log')
+  })
+
+  await runSuite('Analytics: Planificación opens the projected shopping PDF', async () => {
+    await page.locator('.insight', { hasText: 'Compra proyectada' }).locator('button', { hasText: 'Lista de compras (PDF)' }).click()
     await page.waitForTimeout(800)
-    const hasComparison = await page.locator('text=Comparativa').count() > 0
-    const hasPeriod = await page.locator('text=Período').count() > 0
-    assert(hasComparison || hasPeriod, 'Comparison tab rendered')
+    assert(await page.locator('[role="dialog"]').count() > 0, 'PDF viewer opens')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+  })
+
+  await runSuite('Analytics: Operación shows fulfillment and load-time heatmap', async () => {
+    await analyticsTab('Operación').click()
+    await waitForContent(page, '#analytics-panel .heatmap')
+    const headings = await panelHeadings()
+    assert(JSON.stringify(headings) === JSON.stringify(['Cumplimiento semanal', 'Cuándo se cargan los pedidos']), `Operación: ${headings}`)
+    assert(await page.locator('.heatmap td.heat-cell').count() === 168, 'Heatmap has 7 × 24 cells')
+    assert(await page.locator('.heatmap td.is-peak').count() === 1, 'Peak cell is highlighted')
+    const ful = page.locator('.insight', { hasText: 'Cumplimiento semanal' })
+    assert(await ful.locator('tbody tr').count() === 4, 'One row per mock week')
+    assert(await ful.locator('svg.recharts-surface').count() === 1, 'Stacked fulfillment chart')
+    assert((await ful.locator('.insight-figure strong').first().textContent()).includes('%'), 'On-time share figure')
+  })
+
+  await runSuite('Analytics: long tables scroll with a sticky header', async () => {
+    const wrap = page.locator('.insight', { hasText: 'Cumplimiento semanal' }).locator('.scroll-10')
+    assert(await wrap.getAttribute('role') === 'region' && await wrap.getAttribute('tabindex') === '0', 'Scroll area is a focusable region')
+    const styles = await wrap.evaluate(el => ({ max: getComputedStyle(el).maxHeight, overflow: getComputedStyle(el).overflowY, sticky: getComputedStyle(el.querySelector('thead th')).position }))
+    assert(styles.max !== 'none' && styles.overflow === 'auto' && styles.sticky === 'sticky', `Scroll styles: ${JSON.stringify(styles)}`)
+    await setPeriod('Esta semana')
+    await analyticsTab('Ventas').click()
   })
 
   // ─── SETTINGS ─────────────────────────────────────────────────
@@ -866,7 +971,20 @@ async function runAll() {
   await waitForContent(page, 'text=Configuración')
 
   await runSuite('Settings: page title renders', async () => {
-    assert(await page.locator('text=Configuración').count() > 0, 'Settings title not found')
+    assert((await page.locator('.page-header h2').textContent()).trim() === 'Ajustes', 'Settings title should match the nav label')
+  })
+
+  await runSuite('Settings: temas como tarjetas de opción con muestra de color', async () => {
+    const themeChoices = page.locator('[aria-label="Tema visual"] .choice[aria-pressed]')
+    assert(await themeChoices.count() === 3, `Expected 3 theme choices, got ${await themeChoices.count()}`)
+    assert(await themeChoices.first().locator('.choice-swatch span').count() === 3, 'Theme choice needs a 3-color swatch')
+    assert(await page.locator('[aria-label="Tamaño de texto"] .choice[aria-pressed]').count() === 3, 'Expected 3 size choices')
+  })
+
+  await runSuite('Settings: modo macro es un interruptor', async () => {
+    const sw = page.locator('button[role="switch"][aria-label="Modo macro"]')
+    assert(await sw.count() === 1, 'Macro switch missing')
+    assert(['true', 'false'].includes(await sw.getAttribute('aria-checked')), 'Switch needs aria-checked')
   })
 
   await runSuite('Settings: theme buttons exist', async () => {
@@ -927,7 +1045,7 @@ async function runAll() {
   })
 
   await runSuite('Settings: cycle to daltonico theme', async () => {
-    const daltonicoBtn = page.locator('button', { hasText: 'Colores amigables para daltonismo' })
+    const daltonicoBtn = page.locator('button', { hasText: 'Azul y naranja en lugar de verde y rojo' })
     if (await daltonicoBtn.count() > 0) {
       await daltonicoBtn.click()
       await page.waitForTimeout(300)
@@ -985,6 +1103,219 @@ async function runAll() {
       assert(true, 'Medium font button not found')
     }
   })
+
+  // ─── LISTAS (etapa 2) ─────────────────────────────────────────
+  console.log('\n═══════ LISTAS ═══════\n')
+
+  const metricValues = () => page.$$eval('dl.metric-strip .metric', els => els.map(e => [e.querySelector('dt').textContent.trim(), e.querySelector('dd').textContent.trim()]))
+  const cardsInView = () => page.$$eval('.list-card', els => els.filter(e => e.getBoundingClientRect().top < window.innerHeight).length)
+
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await page.evaluate(() => {
+    localStorage.setItem('piu-font-size', 'medium')
+    localStorage.setItem('piu-macro', 'false')
+    localStorage.setItem('piu-theme', 'claro')
+  })
+  await page.goto(BASE_URL + '/#/menu')
+  await page.reload()
+  await waitForApp(page)
+  await waitForContent(page, 'button[aria-label="Editar plato"]')
+
+  await runSuite('Listas: Menú usa encabezado y franja de métricas', async () => {
+    assert((await page.locator('.page-header h2').textContent()).trim() === 'Menú', 'PageHeader missing')
+    const m = JSON.stringify(await metricValues())
+    assert(m === JSON.stringify([['Activos', '10'], ['Inactivos', '1'], ['Total', '11']]), `Metrics: ${m}`)
+  })
+
+  await runSuite('Listas: orden del Menú es un radiogroup con flechas', async () => {
+    const group = page.locator('[role="radiogroup"][aria-label="Ordenar platos"]')
+    assert(await group.locator('[role="radio"]').count() === 4, 'Expected 4 sort options')
+    const checked = group.locator('[role="radio"][aria-checked="true"]')
+    assert((await checked.textContent()).trim() === 'Nombre', 'Nombre should be checked')
+    await checked.focus()
+    await page.keyboard.press('ArrowRight')
+    assert((await group.locator('[role="radio"][aria-checked="true"]').textContent()).trim() === 'Precio', 'ArrowRight should select Precio')
+    assert(await page.evaluate(() => document.activeElement?.getAttribute('role')) === 'radio', 'Focus should follow selection')
+    await page.keyboard.press('ArrowLeft')
+  })
+
+  await runSuite('Listas: entran al menos 5 platos en pantalla', async () => {
+    const n = await cardsInView()
+    assert(n >= 5, `Only ${n} cards in view`)
+  })
+
+  await runSuite('Listas: precio revisado se muestra como estado, no como botón apagado', async () => {
+    assert(await page.locator('button:disabled:has-text("Actualizado")').count() === 0, 'Disabled Actualizado button still present')
+  })
+
+  await page.goto(BASE_URL + '/#/ingredients')
+  await page.reload()
+  await waitForApp(page)
+  await waitForContent(page, 'button[aria-label="Editar ingrediente"]')
+
+  await runSuite('Listas: Ingredientes usa franja de métricas', async () => {
+    assert((await page.locator('.page-header h2').textContent()).trim() === 'Ingredientes', 'PageHeader missing')
+    const m = JSON.stringify(await metricValues())
+    assert(m === JSON.stringify([['Ingredientes', '18'], ['Sub-productos', '2'], ['Total', '20']]), `Metrics: ${m}`)
+  })
+
+  await runSuite('Listas: categorías de Ingredientes en una sola línea', async () => {
+    const group = page.locator('[role="radiogroup"][aria-label="Filtrar por categoría"]')
+    assert(await group.count() === 1, 'Category radiogroup missing')
+    const oneLine = await group.evaluate(g => {
+      const r = [...g.querySelectorAll('[role="radio"]')].map(e => e.getBoundingClientRect().top)
+      return new Set(r.map(Math.round)).size === 1
+    })
+    assert(oneLine, 'Categories wrap to more than one line')
+    await group.locator('[role="radio"]', { hasText: 'Lácteos' }).click()
+    assert(await page.locator('.list-card').count() === 5, 'Lácteos filter should show 5')
+    await group.locator('[role="radio"]', { hasText: 'Todas' }).click()
+  })
+
+  await runSuite('Listas: entran al menos 5 ingredientes en pantalla', async () => {
+    const n = await cardsInView()
+    assert(n >= 5, `Only ${n} cards in view`)
+  })
+
+  await page.goto(BASE_URL + '/#/clients')
+  await page.reload()
+  await waitForApp(page)
+  await waitForContent(page, 'button[aria-label="Editar cliente"]')
+
+  await runSuite('Listas: Clientes muestra el total como subtítulo', async () => {
+    assert((await page.locator('.page-header .page-subtitle').textContent()).trim() === '8 clientes', 'Subtitle should read 8 clientes')
+    assert(await page.locator('dl.metric-strip').count() === 0, 'Clients should not use a metric strip')
+  })
+
+  await runSuite('Listas: historial del cliente se abre con teclado', async () => {
+    const btn = page.locator('.list-card button[aria-label^="Ver historial de"]').first()
+    assert(await btn.count() === 1, 'History button missing')
+    await btn.focus()
+    await page.keyboard.press('Enter')
+    await page.waitForSelector('[role="dialog"]', { timeout: 3000 })
+    assert((await page.locator('[role="dialog"]').textContent()).includes('Historial de'), 'History dialog not opened')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+  })
+
+  await runSuite('Listas: entran al menos 5 clientes en pantalla', async () => {
+    const n = await cardsInView()
+    assert(n >= 5, `Only ${n} cards in view`)
+  })
+
+  await page.goto(BASE_URL + '/#/production')
+  await page.reload()
+  await waitForApp(page)
+  await waitForContent(page, '.prod-card')
+
+  await runSuite('Listas: Producción usa encabezado, métricas y categorías segmentadas', async () => {
+    assert((await page.locator('.page-header h2').textContent()).trim() === 'Producción semanal', 'PageHeader missing')
+    const m = JSON.stringify(await metricValues())
+    assert(m === JSON.stringify([['Unidades pedidas', '11'], ['Producido', '8'], ['Sobreproducción', '8']]), `Metrics: ${m}`)
+    const group = page.locator('[role="radiogroup"][aria-label="Filtrar por categoría"]')
+    assert(await group.locator('[role="radio"]').count() === 4, 'Expected Todas + 3 categories')
+  })
+
+  await runSuite('Listas: sub-productos es un desplegable neutro', async () => {
+    const toggle = page.locator('button.disclosure:has-text("Sub-productos")')
+    assert(await toggle.count() === 1, 'Sub-productos disclosure missing')
+    const bg = await toggle.evaluate(el => getComputedStyle(el.closest('.disclosure-panel')).backgroundColor)
+    const card = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg-card').trim())
+    assert(bg === 'rgb(255, 255, 255)' && card.toUpperCase() === '#FFFFFF', `Panel should use card background, got ${bg}`)
+  })
+
+  await runSuite('Listas: entran al menos 3 platos de producción y +1 sigue siendo táctil', async () => {
+    const n = await page.$$eval('.prod-card', els => els.filter(e => e.getBoundingClientRect().top < window.innerHeight).length)
+    assert(n >= 3, `Only ${n} production cards in view`)
+    const h = await page.locator('button[aria-label*="como producido"]').first().evaluate(el => el.getBoundingClientRect().height)
+    assert(h >= 56, `+1 button is ${h}px tall`)
+  })
+
+  await page.goto(BASE_URL + '/#/orders')
+  await page.reload()
+  await waitForApp(page)
+  await waitForContent(page, '.order-card')
+
+  await runSuite('Listas: Pedidos usa encabezado con selector de semana y franja de métricas', async () => {
+    assert((await page.locator('.page-header h2').textContent()).trim() === 'Pedidos', 'PageHeader missing')
+    assert(await page.locator('.page-header select[aria-label="Seleccionar semana"]').count() === 1, 'Week select should live in the header')
+    const m = JSON.stringify(await metricValues())
+    assert(m === JSON.stringify([['Pendientes', '3'], ['Armados', '0'], ['Entregados', '0']]), `Metrics: ${m}`)
+  })
+
+  await runSuite('Listas: tarjeta de pedido con total arriba y acciones abajo', async () => {
+    const card = page.locator('.order-card').first()
+    assert(await card.locator('.order-card-head .order-total').count() === 1, 'Total should be in the card head')
+    assert(await card.locator('.order-card-foot button[aria-label="Marcar como armado"]').count() === 1, 'Actions should be in the card footer')
+  })
+
+  await runSuite('Listas: entran al menos 3 pedidos en pantalla', async () => {
+    const n = await page.$$eval('.order-card', els => els.filter(e => e.getBoundingClientRect().top < window.innerHeight).length)
+    assert(n >= 3, `Only ${n} orders in view`)
+  })
+
+  await page.goto(BASE_URL + '/#/analytics')
+  await page.reload()
+  await waitForApp(page)
+  await waitForContent(page, '.analytics-head')
+
+  await runSuite('Listas: Análisis usa encabezado, períodos segmentados y métricas', async () => {
+    assert((await page.locator('.analytics-head .page-header h2').textContent()).trim() === 'Análisis', 'PageHeader missing')
+    assert((await page.locator('.analytics-head .page-subtitle').textContent()).includes('entregados y cobrados'), 'Scope note should be the subtitle')
+    const period = page.locator('[role="radiogroup"][aria-label="Período"]')
+    assert(await period.locator('[role="radio"]').count() === 6, 'Expected 6 period options')
+    assert((await period.locator('[aria-checked="true"]').textContent()).trim() === 'Esta semana', 'Esta semana should be checked')
+    const labels = (await metricValues()).map(m => m[0])
+    for (const l of ['Pedidos', 'Ingresos', 'Costo total', 'Ganancia neta', 'Desperdicio']) assert(labels.includes(l), `Missing metric ${l}: ${labels}`)
+  })
+
+  await runSuite('Listas: pestañas de Análisis son un tablist con flechas', async () => {
+    const tabs = page.locator('[role="tablist"][aria-label="Vistas de análisis"] [role="tab"]')
+    assert(await tabs.count() === 6, 'Expected 6 tabs')
+    await tabs.first().focus()
+    await page.keyboard.press('ArrowRight')
+    await page.waitForTimeout(200)
+    assert(await tabs.nth(1).getAttribute('aria-selected') === 'true', 'ArrowRight should select Platos')
+    const panel = page.locator('#analytics-panel[role="tabpanel"]')
+    assert(await panel.getAttribute('aria-labelledby') === await tabs.nth(1).getAttribute('id'), 'Panel should be labelled by the active tab')
+    await page.keyboard.press('ArrowLeft')
+  })
+
+  await runSuite('Listas: detalle de plato en Análisis se abre con teclado', async () => {
+    await page.locator('[role="radiogroup"][aria-label="Período"] [role="radio"]', { hasText: 'Todo' }).click()
+    await page.locator('[role="tab"]', { hasText: 'Platos' }).click()
+    await page.waitForTimeout(600)
+    const toggle = page.locator('#analytics-panel button.rank-toggle[aria-expanded]').first()
+    assert(await toggle.count() === 1, 'Dish name should be a button')
+    await toggle.focus()
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
+    assert(await toggle.getAttribute('aria-expanded') === 'true', 'Enter should expand the dish')
+    await page.keyboard.press('Enter')
+    await page.locator('[role="radiogroup"][aria-label="Período"] [role="radio"]', { hasText: 'Esta semana' }).click()
+  })
+
+  await runSuite('Listas: en modo macro los títulos escalan con el texto', async () => {
+    await page.evaluate(() => localStorage.setItem('piu-macro', 'true'))
+    await page.goto(BASE_URL + '/#/orders')
+    await page.reload()
+    await waitForApp(page)
+    await waitForContent(page, '.order-card')
+    const sizes = await page.evaluate(() => ({
+      body: parseFloat(getComputedStyle(document.body).fontSize),
+      name: parseFloat(getComputedStyle(document.querySelector('.order-card h3')).fontSize),
+      weekClipped: (() => { const w = document.querySelector('.sidebar-week'); return w.scrollWidth > w.clientWidth + 1 })(),
+      selectClipped: (() => { const s = document.querySelector('select[aria-label="Seleccionar semana"]'); return s.getBoundingClientRect().width < 300 })()
+    }))
+    await page.evaluate(() => localStorage.setItem('piu-macro', 'false'))
+    await page.reload()
+    await waitForApp(page)
+    assert(sizes.name >= sizes.body, `Order name ${sizes.name}px is smaller than body ${sizes.body}px`)
+    assert(!sizes.weekClipped, 'Sidebar week label is clipped')
+    assert(!sizes.selectClipped, 'Week select is too narrow')
+  })
+
+  await page.setViewportSize({ width: 1920, height: 1080 })
 
   // ─── KEYBOARD ────────────────────────────────────────────────
   console.log('\n═══════ KEYBOARD ═══════\n')

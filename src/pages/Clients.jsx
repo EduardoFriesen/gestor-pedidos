@@ -5,6 +5,7 @@ import ConfirmPopup from '../components/ConfirmPopup'
 import ClientForm from '../components/ClientForm'
 import { useToast } from '../components/ToastProvider'
 import { fmtMoney, formatDate, orderStatus } from '../utils/format'
+import PageHeader from '../components/ui/PageHeader'
 
 export default function Clients() {
   const showToast = useToast()
@@ -136,31 +137,17 @@ export default function Clients() {
 
   return (
     <div>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 'var(--spacing-lg)'
-      }}>
-        <h2>Clientes</h2>
-        <button className="btn btn-primary" onClick={openNew} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
-          + Cliente
-        </button>
-      </div>
+      <PageHeader
+        title="Clientes"
+        subtitle={filteredClients.length === clients.length
+          ? `${clients.length} cliente${clients.length !== 1 ? 's' : ''}`
+          : `${filteredClients.length} de ${clients.length} clientes`}
+        actions={<button className="btn btn-primary" onClick={openNew}>+ Cliente</button>}
+      />
 
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
-      <div style={{
-        display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)',
-        flexWrap: 'wrap'
-      }}>
-        <div className="card" style={{ flex: 1, minWidth: '120px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Total</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{filteredClients.length === clients.length ? clients.length : `${filteredClients.length} / ${clients.length}`}</p>
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 'var(--spacing-md)' }}>
+      <div className="toolbar">
         <input
           type="text"
           placeholder="Buscar por nombre, teléfono, dirección o localidad..."
@@ -168,7 +155,7 @@ export default function Clients() {
           onChange={e => setSearch(e.target.value)}
           key="search-clients"
           aria-label="Buscar cliente"
-          style={{ width: '100%', maxWidth: '400px' }}
+          style={{ maxWidth: '560px' }}
         />
       </div>
 
@@ -178,49 +165,42 @@ export default function Clients() {
           <p>{search ? 'Probá con otro término de búsqueda.' : 'Agregá un cliente con el botón "+ Cliente" para empezar a tomar pedidos.'}</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-          {filteredClients.map(client => (
-            <div key={client.id} className="card" onClick={() => openHistory(client)} style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 'var(--spacing-md)',
-              cursor: 'pointer',
-              transition: 'box-shadow 0.15s ease'
-            }}>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: 'var(--font-lg)', margin: 0 }}>
-                  {client.name} {client.last_name}
-                </h3>
-                <div style={{
-                  display: 'flex',
-                  gap: 'var(--spacing-xs) var(--spacing-lg)',
-                  flexWrap: 'wrap',
-                  fontSize: 'var(--font-body)',
-                  color: 'var(--text-secondary)',
-                  marginTop: 'var(--spacing-xs)'
-                }}>
-                  {client.phone && <span>{client.phone}</span>}
-                  {(client.address || client.locality) && <span>{[client.address, client.locality].filter(Boolean).join(', ')}</span>}
-                  <span>
-                    {client.order_count > 0
-                      ? `${client.order_count} pedido${client.order_count !== 1 ? 's' : ''} · último ${formatDate(client.last_order_at)}`
-                      : 'Sin pedidos'}
-                  </span>
+        <ul className="list">
+          {filteredClients.map(client => {
+            const fullName = `${client.name} ${client.last_name}`.trim()
+            return (
+              <li key={client.id} className="list-card is-clickable" onClick={() => openHistory(client)}>
+                <div className="list-card-body">
+                  <div className="list-card-title">
+                    <h3>
+                      <button
+                        className="list-card-link"
+                        onClick={(e) => { e.stopPropagation(); openHistory(client) }}
+                        aria-label={`Ver historial de ${fullName}`}
+                      >
+                        {fullName}
+                      </button>
+                    </h3>
+                  </div>
+                  <div className="list-card-meta">
+                    {client.phone && <span>{client.phone}</span>}
+                    {(client.address || client.locality) && <span>{[client.address, client.locality].filter(Boolean).join(', ')}</span>}
+                    <span>
+                      {client.order_count > 0
+                        ? `${client.order_count} pedido${client.order_count !== 1 ? 's' : ''} · último ${formatDate(client.last_order_at)}`
+                        : 'Sin pedidos'}
+                    </span>
+                  </div>
+                  {client.notes && <p className="list-card-details">{client.notes}</p>}
                 </div>
-                {client.notes && (
-                  <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                    {client.notes}
-                  </p>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--spacing-xs)', alignItems: 'center' }}>
-                <button className="btn btn-sm btn-icon-edit" onClick={(e) => { e.stopPropagation(); openEdit(client) }} aria-label="Editar cliente">Editar</button>
-                <button className="btn btn-sm btn-icon-delete" onClick={(e) => { e.stopPropagation(); handleDelete(client.id) }} aria-label="Eliminar cliente">Eliminar</button>
-              </div>
-            </div>
-          ))}
-        </div>
+                <div className="list-card-actions">
+                  <button className="btn btn-sm btn-icon-edit" onClick={(e) => { e.stopPropagation(); openEdit(client) }} aria-label="Editar cliente">Editar</button>
+                  <button className="btn btn-sm btn-icon-delete" onClick={(e) => { e.stopPropagation(); handleDelete(client.id) }} aria-label="Eliminar cliente">Eliminar</button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
       )}
 
       <Modal

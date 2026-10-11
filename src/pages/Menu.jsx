@@ -4,6 +4,16 @@ import ErrorBanner from '../components/ErrorBanner'
 import ConfirmPopup from '../components/ConfirmPopup'
 import { getCompatibleUnits, convertValue } from '../utils/units'
 import { useToast } from '../components/ToastProvider'
+import PageHeader from '../components/ui/PageHeader'
+import MetricStrip from '../components/ui/MetricStrip'
+import Segmented from '../components/ui/Segmented'
+
+const SORT_OPTIONS = [
+  { value: 'name', label: 'Nombre' },
+  { value: 'price', label: 'Precio' },
+  { value: 'cost', label: 'Costo' },
+  { value: 'margin', label: 'Ganancia' }
+]
 
 export default function Menu() {
   const showToast = useToast()
@@ -243,41 +253,27 @@ export default function Menu() {
       return 0
     })
 
+  const stalenessThreshold = parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)
+
   return (
     <div>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 'var(--spacing-lg)'
-      }}>
-        <h2>Menú</h2>
-        <button className="btn btn-primary" onClick={openNew} style={{ width: '220px', fontSize: 'var(--font-body)' }}>
-          + Plato
-        </button>
-      </div>
+      <PageHeader
+        title="Menú"
+        actions={<button className="btn btn-primary" onClick={openNew}>+ Plato</button>}
+      />
 
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
-      <div style={{
-        display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)',
-        flexWrap: 'wrap'
-      }}>
-        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Activos</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--success)' }}>{dishes.filter(d => d.is_active).length}</p>
-        </div>
-        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Inactivos</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900, color: 'var(--text-secondary)' }}>{dishes.filter(d => !d.is_active).length}</p>
-        </div>
-        <div className="card" style={{ flex: 1, minWidth: '100px', textAlign: 'center', padding: 'var(--spacing-sm) var(--spacing-md)' }}>
-          <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>Total</p>
-          <p style={{ fontSize: 'var(--font-lg)', fontWeight: 900 }}>{dishes.length}</p>
-        </div>
-      </div>
+      <MetricStrip
+        label="Resumen del menú"
+        items={[
+          { label: 'Activos', value: dishes.filter(d => d.is_active).length, tone: 'success' },
+          { label: 'Inactivos', value: dishes.filter(d => !d.is_active).length, tone: 'muted' },
+          { label: 'Total', value: dishes.length }
+        ]}
+      />
 
-      <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="toolbar">
         <input
           type="text"
           placeholder="Buscar por plato o categoría..."
@@ -285,35 +281,21 @@ export default function Menu() {
           onChange={e => setSearch(e.target.value)}
           key="search-menu"
           aria-label="Buscar plato"
-          style={{ flex: '1', minWidth: '200px', maxWidth: '400px' }}
         />
-        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>Orden:</span>
-        {[
-          { id: 'name', label: 'Nombre' },
-          { id: 'price', label: 'Precio' },
-          { id: 'cost', label: 'Costo' },
-          { id: 'margin', label: 'Ganancia' }
-        ].map(s => (
-          <button
-            key={s.id}
-            className={dishSort === s.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}
-            onClick={() => {
-              if (dishSort === s.id) {
-                setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')
-              } else {
-                setDishSort(s.id)
-                setDishSortDir(s.id === 'name' ? 'asc' : 'desc')
-              }
-            }}
-            style={{ fontSize: 'var(--font-sm)' }}
-          >
-            {s.label}
-          </button>
-        ))}
+        <span className="toolbar-label" aria-hidden="true">Orden</span>
+        <Segmented
+          label="Ordenar platos"
+          options={SORT_OPTIONS}
+          value={dishSort}
+          onChange={id => {
+            setDishSort(id)
+            setDishSortDir(id === 'name' ? 'asc' : 'desc')
+          }}
+          onReselect={() => setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+        />
         <button
-          className="btn btn-primary btn-sm"
+          className="btn btn-outline btn-sm"
           onClick={() => setDishSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-          style={{ fontSize: 'var(--font-md)', fontWeight: 900, padding: 'var(--spacing-xs) var(--spacing-sm)' }}
           aria-label="Cambiar dirección de orden"
         >
           {dishSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
@@ -402,106 +384,66 @@ export default function Menu() {
           <p>{search ? 'Probá con otro término de búsqueda.' : 'Usá "+ Nuevo Plato" para crear tu primer plato con ingredientes y precios.'}</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-          {filteredDishes.map(dish => (
-            <div key={dish.id} className="card" style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 'var(--spacing-md)',
-              opacity: dish.is_active ? 1 : 0.5
-            }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                  <h3 style={{ fontSize: 'var(--font-lg)', margin: 0 }}>{dish.name}</h3>
-                  {dish.category && (
-                    <span style={{
-                      background: 'var(--primary-light)',
-                      padding: '2px var(--spacing-sm)',
-                      borderRadius: '100px',
-                      fontSize: 'var(--font-sm)',
-                      fontWeight: 600
-                    }}>
-                      {dish.category}
-                    </span>
-                  )}
-                  {!dish.is_active && (
-                    <span className="badge badge-warning" style={{ fontSize: 'var(--font-sm)' }}>
-                      Inactivo
-                    </span>
-                  )}
-                </div>
-                <div style={{
-                  display: 'flex',
-                  gap: 'var(--spacing-md)',
-                  marginTop: 'var(--spacing-xs)',
-                  fontSize: 'var(--font-body)',
-                  color: 'var(--text-secondary)',
-                  flexWrap: 'wrap'
-                }}>
-                  {dish.price > 0 && (
-                    <span>Precio: <strong>${dish.price.toFixed(2)}</strong></span>
-                  )}
-                  {dish.computedCost > 0 && (
-                    <span>Costo: <strong>${dish.computedCost.toFixed(2)}</strong></span>
-                  )}
-                  {dish.price > 0 && dish.computedCost > 0 && (() => {
-                    const m = (dish.price - dish.computedCost) / dish.price * 100
-                    return (
-                      <span style={{
-                        color: m > 30 ? 'var(--success)' : m > 10 ? 'var(--accent)' : 'var(--danger)',
-                        fontWeight: 700
-                      }}>
-                        Margen: {m.toFixed(0)}%
+        <ul className="list">
+          {filteredDishes.map(dish => {
+            const margin = dish.price > 0 && dish.computedCost > 0 ? (dish.price - dish.computedCost) / dish.price * 100 : null
+            const isRecent = dish.last_price_review && (Date.now() - new Date(dish.last_price_review).getTime()) / 86400000 < stalenessThreshold
+            return (
+              <li key={dish.id} className={`list-card${dish.is_active ? '' : ' is-inactive'}`}>
+                <div className="list-card-body">
+                  <div className="list-card-title">
+                    <h3>{dish.name}</h3>
+                    {dish.category && <span className="tag">{dish.category}</span>}
+                    {!dish.is_active && <span className="badge badge-warning">Inactivo</span>}
+                  </div>
+                  <div className="list-card-meta">
+                    {dish.price > 0 && <span>Precio <strong>${dish.price.toFixed(2)}</strong></span>}
+                    {dish.computedCost > 0 && <span>Costo <strong>${dish.computedCost.toFixed(2)}</strong></span>}
+                    {margin !== null && (
+                      <span className={margin > 30 ? 'tone-text-success' : margin > 10 ? 'tone-text-accent' : 'tone-text-danger'} style={{ fontWeight: 700 }}>
+                        Margen {margin.toFixed(0)}%
                       </span>
-                    )
-                  })()}
+                    )}
+                  </div>
+                  {dish.ingredients?.length > 0 && (
+                    <details className="list-card-details">
+                      <summary>Ingredientes ({dish.ingredients.length})</summary>
+                      <div style={{ marginTop: 'var(--spacing-xs)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {dish.ingredients.map((ing, i) => (
+                          <div key={i}>
+                            <span>
+                              {ing.name && `${ing.name}: `}{ing.quantity} {ing.unit}{ing.subtotal > 0 ? ` ($${ing.subtotal.toFixed(2)})` : ''}
+                            </span>
+                            {ing.subIngredients && ing.subIngredients.length > 0 && (
+                              <div style={{ marginLeft: 'var(--spacing-md)', display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '1px' }}>
+                                {ing.subIngredients.map((si, j) => (
+                                  <span key={j} style={{ fontSize: 'var(--font-xs)' }}>
+                                    └ {si.name}: {(si.quantity * ing.quantity).toFixed(3)} {si.unit} (${(si.cost * si.quantity * ing.quantity).toFixed(2)})
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
-                {dish.ingredients?.length > 0 && (
-                  <details style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Ingredientes ({dish.ingredients.length})</summary>
-                    <div style={{ marginTop: 'var(--spacing-xs)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      {dish.ingredients.map((ing, i) => (
-                        <div key={i}>
-                          <span style={{ fontSize: 'var(--font-sm)' }}>
-                            {ing.name && `${ing.name}: `}{ing.quantity} {ing.unit}{ing.subtotal > 0 ? ` ($${ing.subtotal.toFixed(2)})` : ''}
-                          </span>
-                          {ing.subIngredients && ing.subIngredients.length > 0 && (
-                            <div style={{ marginLeft: 'var(--spacing-md)', display: 'flex', flexDirection: 'column', gap: '1px', marginTop: '1px' }}>
-                              {ing.subIngredients.map((si, j) => (
-                                <span key={j} style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
-                                  └ {si.name}: {(si.quantity * ing.quantity).toFixed(3)} {si.unit} (${(si.cost * si.quantity * ing.quantity).toFixed(2)})
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
-                {(() => {
-                  const reviewDate = dish.last_price_review
-                  const threshold = parseInt(localStorage.getItem('priceStalenessThreshold') || '30', 10)
-                  const isRecent = reviewDate && (Date.now() - new Date(reviewDate).getTime()) / 86400000 < threshold
-                  return (
-                    <button
-                      className={`btn btn-sm ${isRecent ? 'btn-icon-confirm' : 'btn-icon-action'}`}
-                      onClick={() => handleMarkDishUpdated(dish.id)}
-                      disabled={isRecent}
-                    >
-                      {isRecent ? '✓ Actualizado' : 'Actualizado'}
+                <div className="list-card-actions">
+                  {isRecent ? (
+                    <span className="status-ok" title="Precio revisado recientemente">✓ Al día</span>
+                  ) : (
+                    <button className="btn btn-sm btn-icon-action" onClick={() => handleMarkDishUpdated(dish.id)} aria-label={`Marcar precio de ${dish.name} como revisado`}>
+                      Revisado
                     </button>
-                  )
-                })()}
-                <button className="btn btn-sm btn-icon-edit" onClick={() => openEdit(dish)} aria-label="Editar plato">Editar</button>
-                <button className="btn btn-sm btn-icon-delete" onClick={() => handleDelete(dish.id)} aria-label="Eliminar plato">Eliminar</button>
-              </div>
-            </div>
-          ))}
-        </div>
+                  )}
+                  <button className="btn btn-sm btn-icon-edit" onClick={() => openEdit(dish)} aria-label="Editar plato">Editar</button>
+                  <button className="btn btn-sm btn-icon-delete" onClick={() => handleDelete(dish.id)} aria-label="Eliminar plato">Eliminar</button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
       )}
 
       <Modal
